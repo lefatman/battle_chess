@@ -73,9 +73,9 @@
     const ph = document.createElement("option");
     ph.value = ""; ph.textContent = "Auto / Not needed";
     dirSelect.appendChild(ph);
-    DIRS.forEach((d, i) => {
+    DIRS.forEach((d) => {
       const opt = document.createElement("option");
-      opt.value = String(i);
+      opt.value = d;
       opt.textContent = d;
       dirSelect.appendChild(opt);
     });
