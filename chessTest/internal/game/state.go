@@ -123,23 +123,28 @@ type MoveRequest struct {
 
 // PieceState is a serializable representation of a Piece.
 type PieceState struct {
-	ID        int         `json:"id"`
-	Color     Color       `json:"color"`
-	Type      PieceType   `json:"type"`
-	Square    Square      `json:"square"`
-	Abilities AbilityList `json:"abilities"`
-	Element   Element     `json:"element"`
-	BlockDir  Direction   `json:"blockDir"`
+	ID           int         `json:"id"`
+	Color        Color       `json:"color"`
+	ColorName    string      `json:"colorName"`
+	Type         PieceType   `json:"type"`
+	TypeName     string      `json:"typeName"`
+	Square       Square      `json:"square"`
+	Abilities    AbilityList `json:"abilities"`
+	AbilityNames []string    `json:"abilityNames"`
+	Element      Element     `json:"element"`
+	ElementName  string      `json:"elementName"`
+	BlockDir     Direction   `json:"blockDir"`
 }
 
 // BoardState is a serializable representation of the game state.
 type BoardState struct {
-	Pieces      []PieceState          `json:"pieces"`
-	Turn        Color                 `json:"turn"`
-	LastNote    string                `json:"lastNote"`
-	Abilities   map[Color]AbilityList `json:"abilities"`
-	Elements    map[Color]Element     `json:"elements"`
-	BlockFacing map[int]Direction     `json:"blockFacing"`
+	Pieces      []PieceState        `json:"pieces"`
+	Turn        Color               `json:"turn"`
+	TurnName    string              `json:"turnName"`
+	LastNote    string              `json:"lastNote"`
+	Abilities   map[string][]string `json:"abilities"`
+	Elements    map[string]string   `json:"elements"`
+	BlockFacing map[int]Direction   `json:"blockFacing"`
 }
 
 // ---------------------------
@@ -266,31 +271,36 @@ func (e *Engine) State() BoardState {
 	state := BoardState{
 		Pieces:      make([]PieceState, 0, 32),
 		Turn:        e.board.turn,
+		TurnName:    e.board.turn.String(),
 		LastNote:    e.board.lastNote,
-		Abilities:   make(map[Color]AbilityList),
-		Elements:    make(map[Color]Element),
+		Abilities:   make(map[string][]string),
+		Elements:    make(map[string]string),
 		BlockFacing: make(map[int]Direction),
 	}
 
 	for _, pc := range e.board.pieceAt {
 		if pc != nil {
 			state.Pieces = append(state.Pieces, PieceState{
-				ID:        pc.ID,
-				Color:     pc.Color,
-				Type:      pc.Type,
-				Square:    pc.Square,
-				Abilities: pc.Abilities,
-				Element:   pc.Element,
-				BlockDir:  pc.BlockDir,
+				ID:           pc.ID,
+				Color:        pc.Color,
+				ColorName:    pc.Color.String(),
+				Type:         pc.Type,
+				TypeName:     pc.Type.String(),
+				Square:       pc.Square,
+				Abilities:    pc.Abilities.Clone(),
+				AbilityNames: pc.Abilities.Strings(),
+				Element:      pc.Element,
+				ElementName:  pc.Element.String(),
+				BlockDir:     pc.BlockDir,
 			})
 		}
 	}
 
 	for color, abilities := range e.abilities {
-		state.Abilities[color] = abilities
+		state.Abilities[color.String()] = abilities.Strings()
 	}
 	for color, element := range e.elements {
-		state.Elements[color] = element
+		state.Elements[color.String()] = element.String()
 	}
 	for id, dir := range e.blockFacing {
 		state.BlockFacing[id] = dir

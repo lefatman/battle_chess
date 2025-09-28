@@ -7,7 +7,11 @@
   let state = init.state || {
     pieces: [],        // [{id, type, color, square, element?}]
     blockFacing: {},   // { [pieceId]: directionIndex }
+    abilities: {},
+    elements: {},
     turn: 0,
+    turnName: "white",
+    lastNote: "",
     locked: false
   };
   let selectedSquare = null;   // 0..63
@@ -79,8 +83,9 @@
 
   function createPieceElement(piece) {
     // Unicode set + element badge via CSS class
-    const isWhite = piece.color === 0 || piece.color === "white" || piece.color === "White";
-    const t = String(piece.type || "").toUpperCase();
+    const colorName = String(piece.colorName || piece.color || "").toLowerCase();
+    const isWhite = colorName === "white" || piece.color === 0;
+    const t = String(piece.typeName || piece.type || "").toUpperCase();
     const glyph = (function () {
       switch (t) {
         case "K": return isWhite ? "♔" : "♚";
@@ -97,13 +102,18 @@
     el.textContent = glyph;
     el.dataset.id = piece.id;
     el.dataset.color = isWhite ? "white" : "black";
-    if (piece.element) {
-      el.classList.add("element-" + String(piece.element).toLowerCase());
+    const elementName = String(piece.elementName || piece.element || "").toLowerCase();
+    if (elementName && elementName !== "none") {
+      el.classList.add("element-" + elementName);
+      el.dataset.element = elementName;
     }
+    const colorLabel = piece.colorName ? capitalize(piece.colorName) : (isWhite ? "White" : "Black");
+    const typeLabel = getPieceTypeName(piece.typeName || piece.type);
+    el.setAttribute("title", `${colorLabel} ${typeLabel}`);
     // Show BlockPath indicator
     const facing = state.blockFacing && state.blockFacing[piece.id];
     if (facing !== undefined) {
-      el.setAttribute("title", `${isWhite ? "White" : "Black"} ${piece.type} • BlockPath:${DIRS[facing]}`);
+      el.setAttribute("title", `${colorLabel} ${typeLabel} • BlockPath:${DIRS[facing] ?? "?"}`);
     }
     return el.outerHTML;
   }
@@ -141,8 +151,10 @@
         }
 
         // Hover tooltip
+        const colorLabel = piece && (piece.colorName ? capitalize(piece.colorName) : (piece.color === 0 ? "White" : "Black"));
+        const typeLabel = piece && getPieceTypeName(piece.typeName || piece.type);
         sq.title = piece
-          ? `${piece.color === 0 ? "White" : "Black"} ${getPieceTypeName(piece.type)}`
+          ? `${colorLabel} ${typeLabel}`
           : sqToAlg(sqIndex);
 
         // Events
@@ -154,8 +166,8 @@
       }
     }
     // Labels
-    if (turnLabel) turnLabel.textContent = getTurnName(state.turn);
-    if (noteLabel) noteLabel.textContent = state.note || "Ready";
+    if (turnLabel) turnLabel.textContent = state.turnName ? capitalize(state.turnName) : getTurnName(state.turn);
+    if (noteLabel) noteLabel.textContent = state.note || state.lastNote || "Ready";
     if (selectedLabel) selectedLabel.textContent = selectedSquare !== null ? sqToAlg(selectedSquare) : "—";
     renderBlockSummary();
   }
@@ -208,7 +220,7 @@
   function isPieceTurn(piece) {
     const turn = state.turn;
     const isWhiteTurn = turn === 0 || String(turn).toLowerCase() === "white";
-    const isWhite = piece.color === 0 || String(piece.color).toLowerCase() === "white";
+    const isWhite = piece.color === 0 || String(piece.colorName || piece.color).toLowerCase() === "white";
     return isWhiteTurn === isWhite;
   }
 
@@ -458,11 +470,39 @@
   }
 
   function hasBlockPath(piece) {
-    // Support either per-piece ability or side-level config in state.config[color].abilities
-    if (Array.isArray(piece.abilities) && piece.abilities.includes("BlockPath")) return true;
-    const colorKey = (piece.color === 0 || String(piece.color).toLowerCase() === "white") ? "white" : "black";
-    const cfg = state.config && state.config[colorKey];
-    return !!(cfg && Array.isArray(cfg.abilities) && cfg.abilities.includes("BlockPath"));
+    if (!piece) return false;
+    if (abilityListHasBlockPath(piece.abilityNames)) return true;
+    if (abilityListHasBlockPath(piece.abilities)) return true;
+
+    const colorKeyBase = piece.colorName
+      ? String(piece.colorName).toLowerCase()
+      : (piece.color === 0 ? "white" : piece.color === 1 ? "black" : String(piece.color));
+    const colorKeys = [
+      colorKeyBase,
+      colorKeyBase && colorKeyBase.toUpperCase(),
+      colorKeyBase && capitalize(colorKeyBase),
+      String(piece.color)
+    ].filter(Boolean);
+
+    const abilityMap = state.abilities || {};
+    for (const key of colorKeys) {
+      if (abilityListHasBlockPath(abilityMap[key])) return true;
+    }
+
+    const cfgMap = state.config || {};
+    for (const key of colorKeys) {
+      const cfg = cfgMap[key];
+      if (cfg && abilityListHasBlockPath(cfg.abilities)) return true;
+    }
+    return false;
+  }
+
+  function abilityListHasBlockPath(list) {
+    if (!Array.isArray(list)) return false;
+    return list.some((ability) => {
+      const normalized = String(ability || "").toLowerCase().replace(/\s+/g, "");
+      return normalized === "blockpath";
+    });
   }
 
   async function animateMove(fromSq, toSq) {
