@@ -1,0 +1,183 @@
+{{define "index"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>⚔️ Battle Chess Arena</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#f59e0b" />
+  <meta name="description" content="Chess battles with abilities and elemental powers" />
+  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚔️</text></svg>">
+  <noscript>
+    <style>
+      .layout { display:none !important; }
+      .nojs { padding:16px; margin:16px; border:2px solid #f59e0b; border-radius:12px; background:#2b3445; color:#fff; }
+    </style>
+  </noscript>
+</head>
+<body>
+  <a class="visually-hidden" href="#board" style="position:absolute;left:-9999px;top:auto;overflow:hidden">
+    Skip to board
+  </a>
+
+  <header class="page-header" role="banner">
+    <h1>⚔️ Battle Chess Arena</h1>
+    <div class="status-bar" role="status" aria-live="polite">
+      <span>Turn: <strong id="turnLabel" class="turn-indicator">White</strong></span>
+      <span>Status: <span id="noteLabel" class="game-note">Configure both sides to begin.</span></span>
+    </div>
+  </header>
+
+  <!-- Live region for ability/move announcements (non-intrusive for SR, toast mirrors visually) -->
+  <div id="abilityAnnounce" class="visually-hidden" aria-live="assertive" aria-atomic="true"></div>
+
+  <!-- Toast container for visible, auto-expiring ability notifications -->
+  <div id="abilityToastContainer" aria-hidden="true" style="position:fixed;right:16px;top:16px;z-index:9999;"></div>
+
+  <main class="layout" role="main">
+    <section class="board-panel" aria-labelledby="board-title">
+      <h2 id="board-title" class="visually-hidden">Battle Arena</h2>
+
+      <div id="board" class="board" aria-label="Battle Chess Arena" role="grid" tabindex="0"></div>
+
+      <div class="info-line" role="status">
+        <span>🎯 Selected: <span id="selectedSquare">—</span></span>
+        <span>👁️ Hover: <span id="hoverSquare">—</span></span>
+      </div>
+
+      <form id="moveForm" class="card" autocomplete="off" aria-labelledby="move-title">
+        <h2 id="move-title">🗡️ Command Your Forces</h2>
+        <div class="form-row">
+          <label for="fromInput">From Square
+            <input id="fromInput" name="from" maxlength="2" pattern="[a-h][1-8]"
+                   placeholder="e.g. e2" aria-describedby="from-help" />
+            <span id="from-help" class="hint">Click a piece or type coordinates</span>
+          </label>
+
+          <label for="toInput">To Square
+            <input id="toInput" name="to" maxlength="2" pattern="[a-h][1-8]"
+                   placeholder="e.g. e4" aria-describedby="to-help" />
+            <span id="to-help" class="hint">Target destination</span>
+          </label>
+
+          <label for="dirSelect">🛡️ Shield Direction
+            <select id="dirSelect" name="dir" aria-describedby="dir-help"></select>
+            <span id="dir-help" class="hint">Required only if moving a BlockPath piece</span>
+          </label>
+        </div>
+
+        <div class="form-row">
+          <button type="submit" aria-describedby="submit-help">⚔️ Execute Move</button>
+          <button type="button" id="resetBtn" aria-describedby="reset-help">🏰 Reset Battle</button>
+        </div>
+
+        <p id="submit-help" class="hint">Execute your strategic move on the battlefield</p>
+        <div id="moveError" class="error" role="alert" aria-live="assertive"></div>
+      </form>
+    </section>
+
+    <section class="control-panel" role="complementary">
+      <article class="card" aria-labelledby="config-title">
+        <h2 id="config-title">🏛️ Forge Your Army</h2>
+        <p class="hint">Both sides must choose an ability and element before the match starts.</p>
+
+        <div class="config-forms">
+          <form class="config-form team-white" data-color="white" aria-labelledby="white-config">
+            <h3 id="white-config">⚪ White Legion</h3>
+
+            <label for="white-ability">⭐ Sacred Ability
+              <select id="white-ability" class="ability-select" aria-describedby="white-ability-help"></select>
+              <span id="white-ability-help" class="hint">Divine power granted to all pieces</span>
+            </label>
+
+            <label for="white-element">🔥 Elemental Affinity
+              <select id="white-element" class="element-select" aria-describedby="white-element-help"></select>
+              <span id="white-element-help" class="hint">Elemental force empowering your army</span>
+            </label>
+
+            <button type="submit">🛡️ Consecrate White Forces</button>
+          </form>
+
+          <form class="config-form team-black" data-color="black" aria-labelledby="black-config">
+            <h3 id="black-config">⚫ Black Legion</h3>
+
+            <label for="black-ability">⭐ Dark Ability
+              <select id="black-ability" class="ability-select" aria-describedby="black-ability-help"></select>
+              <span id="black-ability-help" class="hint">Forbidden power granted to all pieces</span>
+            </label>
+
+            <label for="black-element">🔥 Elemental Affinity
+              <select id="black-element" class="element-select" aria-describedby="black-element-help"></select>
+              <span id="black-element-help" class="hint">Elemental force empowering your army</span>
+            </label>
+
+            <button type="submit">⚔️ Anoint Black Forces</button>
+          </form>
+        </div>
+
+        <div id="configMessage" class="config-status" role="status" aria-live="polite"></div>
+      </article>
+
+      <article class="card" aria-labelledby="legend-title">
+        <h2 id="legend-title">📜 Battle Legend</h2>
+        <div class="legend-grid">
+          <div class="legend-item"><span class="legend-icon">🛡️</span><span>BlockPath Defense Active</span></div>
+          <div class="legend-item"><span class="legend-icon">⚔️</span><span>Attack Target</span></div>
+          <div class="legend-item"><span class="legend-icon">🎯</span><span>Selected Piece</span></div>
+          <div class="legend-item"><span class="legend-icon">✨</span><span>Possible Move</span></div>
+        </div>
+        <hr style="opacity:.25;margin:12px 0;">
+        <div class="legend-grid" aria-label="Piece ranks">
+          <div class="legend-item"><span class="legend-icon">♔/♚</span><span>King = 5</span></div>
+          <div class="legend-item"><span class="legend-icon">♕/♛</span><span>Queen = 4</span></div>
+          <div class="legend-item"><span class="legend-icon">♗/♝, ♖/♜</span><span>Bishop/Rook = 3</span></div>
+          <div class="legend-item"><span class="legend-icon">♘/♞</span><span>Knight = 2</span></div>
+          <div class="legend-item"><span class="legend-icon">♙/♟</span><span>Pawn = 1</span></div>
+        </div>
+      </article>
+
+      <article class="card" aria-labelledby="block-title">
+        <h2 id="block-title">🛡️ Defensive Formations</h2>
+        <p class="hint">After each BlockPath move, your piece adopts a defensive stance. Enemies cannot attack from the chosen direction.</p>
+        <ul id="blockSummary" class="block-summary" aria-label="Current defensive formations"></ul>
+      </article>
+
+      <article class="card" aria-labelledby="eventlog-title">
+        <h2 id="eventlog-title">📣 Event Log</h2>
+        <p class="hint">Ability triggers and resolution details appear here.</p>
+        <ul id="eventFeed" class="block-summary" aria-live="polite" aria-relevant="additions text" aria-atomic="false"></ul>
+      </article>
+
+      <article class="card" aria-labelledby="movelist-title">
+        <h2 id="movelist-title">📈 Move List</h2>
+        <ol id="moveList" class="block-summary" start="1" aria-live="polite"></ol>
+      </article>
+    </section>
+  </main>
+
+  <footer class="page-footer">
+    <span>&copy; Battle Chess Experimental Engine</span>
+  </footer>
+
+  <!-- Templates for JS to clone (safe if unused) -->
+  <template id="logItemTpl">
+    <li class="event-item"><span class="event-time"></span> <strong class="event-type"></strong> <span class="event-msg"></span></li>
+  </template>
+  <template id="toastTpl">
+    <div class="card" style="padding:12px 16px; margin-bottom:10px; min-width:260px;">
+      <strong class="toast-title"></strong>
+      <div class="toast-body hint"></div>
+    </div>
+  </template>
+
+  <!-- App boot payload -->
+  <script id="__init" type="application/json">{{.Init}}</script>
+  <script src="/static/app.js" defer></script>
+
+  <noscript>
+    <div class="nojs">This application requires JavaScript to play. Please enable JavaScript and reload.</div>
+  </noscript>
+</body>
+</html>
+{{end}}
