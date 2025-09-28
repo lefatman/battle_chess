@@ -348,14 +348,20 @@ func (e *Engine) calculateMovementCost(pc *Piece, from, to Square) int {
 	cost := 1 // Basic movement costs 1 step.
 
 	// Sliders (Queen, Rook, Bishop) pay an extra step to change direction mid-turn.
-	if e.isSlider(pc.Type) && len(e.currentMove.Path) > 1 {
-		prevFrom := e.currentMove.Path[len(e.currentMove.Path)-2]
-		prevDir := shared.DirectionOf(prevFrom, from)
-		currentDir := shared.DirectionOf(from, to)
+	if e.isSlider(pc.Type) {
+		pathLen := 0
+		if e.currentMove != nil {
+			pathLen = len(e.currentMove.Path)
+		}
+		if pathLen > 1 {
+			prevFrom := e.currentMove.Path[pathLen-2]
+			prevDir := shared.DirectionOf(prevFrom, from)
+			currentDir := shared.DirectionOf(from, to)
 
-		if prevDir != currentDir && prevDir != DirNone && currentDir != DirNone {
-			cost++ // Direction change costs an extra step.
-			appendAbilityNote(&e.board.lastNote, "Direction change cost +1 step")
+			if prevDir != currentDir && prevDir != DirNone && currentDir != DirNone {
+				cost++ // Direction change costs an extra step.
+				appendAbilityNote(&e.board.lastNote, "Direction change cost +1 step")
+			}
 		}
 	}
 	return cost
