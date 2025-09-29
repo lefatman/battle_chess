@@ -38,3 +38,45 @@ The method is called after every capture from both `startNewMove` and `continueM
 
 Both `startNewMove` and `continueMove` invoke `registerCapture` immediately after executing a capture. The resulting state enables Resurrection follow-ups to be detected on the next segment and ensures the capture budget reflects the new removal before `canCaptureMore` decides whether the player may continue. 【F:chessTest/internal/game/moves.go†L174-L185】【F:chessTest/internal/game/moves.go†L249-L310】
 
+## `startNewMove` ability checkpoints
+
+The entrypoint for a turn front-loads several ability- and flag-aware decisions before executing the first segment. Each numbered block below corresponds to a contiguous section in `startNewMove` and highlights the ability or `MoveState` concern that would need a handler hook in a refactor.
+
+1. **Capture blockers and notes.** `captureBlockedByBlockPath` inspects defender abilities and elemental overrides, and posts an ability note if the attempt is vetoed. 【F:chessTest/internal/game/moves.go†L129-L133】【F:chessTest/internal/game/ability_resolver.go†L203-L215】
+2. **Step budget calculation.** `calculateStepBudget` aggregates per-ability step bonuses and Temporal Lock slow tokens before the move begins. The result seeds `RemainingSteps`. 【F:chessTest/internal/game/moves.go†L134-L145】【F:chessTest/internal/game/moves.go†L545-L589】
+3. **Phasing capability snapshot.** `canPhaseThrough` collapses rider and team ability grants into a `UsedPhasing` flag that persists for path passability checks. 【F:chessTest/internal/game/moves.go†L134-L152】【F:chessTest/internal/game/piece_ops.go†L197-L231】
+4. **Per-turn ability caches.** The `MoveState` initializer queries Chain/Quantum/Double Kill helpers and Resurrection to cache turn-wide flags and capture limits. 【F:chessTest/internal/game/moves.go†L147-L160】
+5. **Post-segment toggles.** Immediately after executing the segment, `handlePostSegment` toggles Flood Wake/Blaze Rush booleans and logs Mist Shroud pivots, emitting ability notes as it goes. 【F:chessTest/internal/game/moves.go†L171-L199】【F:chessTest/internal/game/moves.go†L682-L727】
+6. **Capture window bookkeeping.** On captures the engine raises the Resurrection window, tallies Chain Kill, and re-evaluates capture budgets via `registerCapture` and `canCaptureMore`. 【F:chessTest/internal/game/moves.go†L174-L186】【F:chessTest/internal/game/moves.go†L38-L58】
+7. **Capture aftermath abilities.** `ResolveCaptureAbility` chains DoOver, Double Kill, Scorch, and Quantum Kill routines, including penalty drains that mutate `RemainingSteps`. 【F:chessTest/internal/game/moves.go†L174-L186】【F:chessTest/internal/game/ability_resolver.go†L9-L201】
+8. **Forced turn endings.** `shouldEndTurnAfterCapture` scans attacker abilities for Poisonous Meat, Overload, and Bastion triggers, appending notes when they fire. 【F:chessTest/internal/game/moves.go†L188-L199】【F:chessTest/internal/game/moves.go†L858-L890】
+9. **Post-move ability hints.** `resolveBlockPathFacing` and `checkPostMoveAbilities` post ability notes, while the final branch checks `RemainingSteps` alongside `hasFreeContinuation` to decide whether to end the turn. 【F:chessTest/internal/game/moves.go†L194-L209】【F:chessTest/internal/game/moves.go†L699-L769】【F:chessTest/internal/game/moves.go†L729-L818】
+
+## Ability-driven helper behavior
+
+### `calculateStepBudget`
+Aggregates turn-start step counts by layering elemental + ability synergies and clearing any stored Temporal Lock slows. Each ability contribution is additive or subtractive: Scorch(+1), Tailwind(+2, -1 with Temporal Lock), Radiant Vision(+1, +1 more with Mist Shroud), Umbral Step(+2, -1 with Radiant Vision), and Schrodinger's Laugh(+2, +1 with Side Step). The routine also consumes the color's queued slow penalty. 【F:chessTest/internal/game/moves.go†L545-L589】
+
+### `canPhaseThrough`
+Determines whether the mover may pass through blockers by combining personal abilities with player-wide grants. Flood Wake or Bastion anywhere on the team disables phasing; Gale Lift or Umbral Step (piece or global) enables it. The result is cached as `UsedPhasing`. 【F:chessTest/internal/game/piece_ops.go†L197-L231】
+
+### `handlePostSegment`
+Updates per-turn flags after each executed segment. If the move qualified as a Flood Wake push or Blaze Rush dash, it marks the usage and emits corresponding notes. It also calls `logDirectionChange`, which either consumes Mist Shroud's free pivot or reports the standard extra step cost. 【F:chessTest/internal/game/moves.go†L682-L727】
+
+### `ResolveCaptureAbility`
+On every capture the resolver:
+* Runs DoOver rewinds before any further processing.
+* Attempts Double Kill extra removals, falling back to Fire-Scorch splash if Double Kill failed.
+* Spends the cached Quantum Kill charge to remove another victim and potentially echo a second removal.
+* Applies capture penalties such as Poisonous Meat and Overload + Stalwart drains, appending ability notes whenever a branch fires.
+Each step may mutate `RemainingSteps` or remove extra pieces, so the hook must run before `canCaptureMore` reevaluates continuation rights. 【F:chessTest/internal/game/ability_resolver.go†L9-L201】
+
+## Hook surface summary
+
+To migrate these mechanics into ability-owned handlers, the refactor will need dedicated extension points:
+
+* **Budget contributions:** `OnComputeStepBudget(piece, ctx)` allowing abilities to add/remove step modifiers and consume stored slows before `RemainingSteps` is set. 【F:chessTest/internal/game/moves.go†L134-L145】【F:chessTest/internal/game/moves.go†L545-L589】
+* **Phasing eligibility:** `OnQueryPathingFlags(piece, segment)` letting abilities advertise or veto pass-through rights before path validation caches `UsedPhasing`. 【F:chessTest/internal/game/moves.go†L134-L152】【F:chessTest/internal/game/piece_ops.go†L197-L231】
+* **Capture aftermath:** `OnCaptureResolved(attacker, victim, ctx)` combining extra removals, resurrection windows, capture counts, and penalty drains prior to continuation checks. 【F:chessTest/internal/game/moves.go†L174-L199】【F:chessTest/internal/game/ability_resolver.go†L9-L201】
+* **Post-segment toggles:** `OnSegmentResolved(piece, segment, ctx)` updating once-per-turn flags (Flood Wake, Blaze Rush, Mist Shroud) and announcing ability hints for subsequent actions. 【F:chessTest/internal/game/moves.go†L171-L209】【F:chessTest/internal/game/moves.go†L682-L890】
+
