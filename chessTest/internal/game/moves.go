@@ -225,6 +225,10 @@ func (e *Engine) continueMove(req MoveRequest) error {
 		return err
 	}
 
+	if handled, err := e.tryQuantumStep(pc, from, to); handled {
+		return err
+	}
+
 	// Validate the legality of the continuation move.
 	if !e.isLegalContinuation(pc, from, to) {
 		return errors.New("illegal move continuation")
@@ -343,6 +347,115 @@ func (e *Engine) trySideStepNudge(pc *Piece, from, to Square) (bool, error) {
 	}
 
 	return true, nil
+}
+
+func (e *Engine) tryQuantumStep(pc *Piece, from, to Square) (bool, error) {
+	if e.currentMove == nil || pc == nil {
+		return false, nil
+	}
+	if !pc.Abilities.Contains(AbilityQuantumStep) || e.currentMove.QuantumStepUsed || e.currentMove.RemainingSteps <= 0 {
+		return false, nil
+	}
+
+	ally, ok := e.validateQuantumStep(pc, from, to)
+	if !ok {
+		return false, nil
+	}
+
+	e.pushHistory()
+	e.currentMove.RemainingSteps--
+	if e.currentMove.RemainingSteps < 0 {
+		e.currentMove.RemainingSteps = 0
+	}
+	e.currentMove.QuantumStepUsed = true
+	e.currentMove.ResurrectionWindow = false
+
+	if ally == nil {
+		e.executeMoveSegment(from, to, moveSegmentContext{})
+		appendAbilityNote(&e.board.lastNote, "Quantum Step blink (cost 1 step)")
+	} else {
+		e.performQuantumSwap(pc, ally, from, to)
+		appendAbilityNote(&e.board.lastNote, "Quantum Step swap (cost 1 step)")
+	}
+
+	e.currentMove.Path = append(e.currentMove.Path, to)
+	e.handlePostSegment(pc, from, to, nil)
+
+	if e.checkPostCaptureTermination(pc, nil) {
+		e.endTurn()
+		return true, nil
+	}
+	if e.currentMove == nil {
+		return true, nil
+	}
+	if e.currentMove.RemainingSteps <= 0 && !e.hasFreeContinuation(pc) {
+		e.endTurn()
+	} else {
+		appendAbilityNote(&e.board.lastNote, fmt.Sprintf("%d steps remaining", e.currentMove.RemainingSteps))
+	}
+
+	return true, nil
+}
+
+func (e *Engine) validateQuantumStep(pc *Piece, from, to Square) (*Piece, bool) {
+	if pc == nil {
+		return nil, false
+	}
+	if !isAdjacentSquare(from, to) {
+		return nil, false
+	}
+
+	target := e.board.pieceAt[to]
+	if target != nil && target.Color != pc.Color {
+		return nil, false
+	}
+
+	if target == nil && e.isLegalContinuation(pc, from, to) {
+		return nil, false
+	}
+
+	if target != nil && target.Color == pc.Color {
+		return target, true
+	}
+
+	return nil, true
+}
+
+func (e *Engine) performQuantumSwap(pc, ally *Piece, from, to Square) {
+	if pc == nil || ally == nil {
+		return
+	}
+	if ally.Color != pc.Color {
+		return
+	}
+
+	e.board.EnPassant = NoEnPassantTarget()
+
+	e.board.pieceAt[from] = ally
+	e.board.pieceAt[to] = pc
+
+	pc.Square = to
+	ally.Square = from
+
+	e.board.pieces[pc.Color][pc.Type] = e.board.pieces[pc.Color][pc.Type].Remove(from).Add(to)
+	e.board.pieces[ally.Color][ally.Type] = e.board.pieces[ally.Color][ally.Type].Remove(to).Add(from)
+
+	occ := e.board.occupancy[pc.Color]
+	occ = occ.Remove(from)
+	occ = occ.Remove(to)
+	occ = occ.Add(from)
+	occ = occ.Add(to)
+	e.board.occupancy[pc.Color] = occ
+
+	all := e.board.allOcc
+	all = all.Remove(from)
+	all = all.Remove(to)
+	all = all.Add(from)
+	all = all.Add(to)
+	e.board.allOcc = all
+
+	e.updateCastlingRightsForMove(pc, from)
+	e.updateCastlingRightsForMove(ally, to)
 }
 
 func isAdjacentSquare(from, to Square) bool {
