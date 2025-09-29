@@ -335,6 +335,102 @@ func TestIndomitableBlocksAbilityRemoval(t *testing.T) {
 	}
 }
 
+func TestResurrectionCaptureWindowExpires(t *testing.T) {
+	eng := NewEngine()
+	if err := eng.SetSideConfig(White, AbilityList{AbilityResurrection, AbilitySchrodingersLaugh, AbilityTailwind, AbilityChainKill}, ElementAir); err != nil {
+		t.Fatalf("configure white: %v", err)
+	}
+	if err := eng.SetSideConfig(Black, AbilityList{AbilitySideStep}, ElementShadow); err != nil {
+		t.Fatalf("configure black: %v", err)
+	}
+
+	clearBoard(eng)
+
+	start := mustSquare(t, "c3")
+	firstCapture := mustSquare(t, "e5")
+	verticalCapture := mustSquare(t, "e6")
+	pivot := mustSquare(t, "f7")
+	blocked := mustSquare(t, "f8")
+
+	eng.placePiece(White, Bishop, start)
+	eng.placePiece(Black, Knight, firstCapture)
+	eng.placePiece(Black, Rook, verticalCapture)
+	eng.placePiece(Black, Queen, blocked)
+	eng.board.turn = White
+
+	if steps := eng.calculateStepBudget(eng.board.pieceAt[start]); steps < 3 {
+		t.Fatalf("expected at least 3 steps with buffs, got %d", steps)
+	}
+	if eng.abilities[Black].Contains(AbilityDoOver) {
+		t.Fatalf("black side unexpectedly configured with Do-Over")
+	}
+	if pc := eng.board.pieceAt[firstCapture]; pc == nil {
+		t.Fatalf("expected black piece at %s", firstCapture)
+	} else if pc.Abilities.Contains(AbilityDoOver) {
+		t.Fatalf("test setup gave victim Do-Over unexpectedly")
+	}
+
+	if err := eng.Move(MoveRequest{From: start, To: firstCapture, Dir: DirNone}); err != nil {
+		t.Fatalf("first capture: %v", err)
+	}
+
+	if eng.board.turn != White {
+		t.Fatalf("expected white to retain turn after capture, got %s", eng.board.turn)
+	}
+
+	if err := eng.Move(MoveRequest{From: firstCapture, To: verticalCapture, Dir: DirNone}); err != nil {
+		t.Fatalf("vertical capture: %v", err)
+	}
+
+	if err := eng.Move(MoveRequest{From: verticalCapture, To: pivot, Dir: DirNone}); err != nil {
+		t.Fatalf("pivot move: %v", err)
+	}
+
+	if err := eng.Move(MoveRequest{From: pivot, To: blocked, Dir: DirNone}); err == nil {
+		t.Fatalf("expected vertical capture window to expire after one segment")
+	}
+}
+
+func TestTemporalLockAppliesSlowToNextMover(t *testing.T) {
+	eng := NewEngine()
+	if err := eng.SetSideConfig(White, AbilityList{AbilityTemporalLock}, ElementFire); err != nil {
+		t.Fatalf("configure white: %v", err)
+	}
+	if err := eng.SetSideConfig(Black, AbilityList{AbilitySchrodingersLaugh}, ElementLight); err != nil {
+		t.Fatalf("configure black: %v", err)
+	}
+
+	clearBoard(eng)
+
+	whiteStart := mustSquare(t, "e4")
+	whiteLanding := mustSquare(t, "f6")
+	blackStart := mustSquare(t, "a7")
+	blackLanding := mustSquare(t, "a6")
+
+	eng.placePiece(White, Knight, whiteStart)
+	eng.placePiece(Black, Rook, blackStart)
+	eng.board.turn = White
+
+	if err := eng.Move(MoveRequest{From: whiteStart, To: whiteLanding, Dir: DirNone}); err != nil {
+		t.Fatalf("white move: %v", err)
+	}
+
+	if eng.board.turn != Black {
+		t.Fatalf("expected turn to pass to black after white move")
+	}
+
+	if err := eng.Move(MoveRequest{From: blackStart, To: blackLanding, Dir: DirNone}); err != nil {
+		t.Fatalf("black move: %v", err)
+	}
+
+	if eng.board.turn != White {
+		t.Fatalf("expected Temporal Lock slow to end black's turn immediately")
+	}
+	if eng.currentMove != nil {
+		t.Fatalf("expected no active move after slow applied")
+	}
+}
+
 func removePieceAt(eng *Engine, coord string) error {
 	sq, ok := CoordToSquare(coord)
 	if !ok {

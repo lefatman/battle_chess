@@ -23,6 +23,7 @@ type Engine struct {
 	configured    map[Color]bool
 	pendingDoOver map[int]bool // Tracks per-piece DoOver consumption
 	currentMove   *MoveState
+	temporalSlow  map[Color]int
 }
 
 // undoState captures a snapshot of the engine's state for history.
@@ -34,6 +35,7 @@ type undoState struct {
 	configured    map[Color]bool
 	pendingDoOver map[int]bool
 	currentMove   *MoveState
+	temporalSlow  map[Color]int
 }
 
 func cloneMoveState(src *MoveState, pieceMap map[*Piece]*Piece) *MoveState {
@@ -87,6 +89,17 @@ func cloneIntBoolMap(src map[int]bool) map[int]bool {
 		return make(map[int]bool)
 	}
 	clone := make(map[int]bool, len(src))
+	for k, v := range src {
+		clone[k] = v
+	}
+	return clone
+}
+
+func cloneColorIntMap(src map[Color]int) map[Color]int {
+	if len(src) == 0 {
+		return make(map[Color]int)
+	}
+	clone := make(map[Color]int, len(src))
 	for k, v := range src {
 		clone[k] = v
 	}
@@ -167,6 +180,7 @@ func NewEngine() *Engine {
 		configured:    make(map[Color]bool, 2),
 		pendingDoOver: make(map[int]bool),
 		currentMove:   nil,
+		temporalSlow:  make(map[Color]int),
 	}
 	if err := eng.Reset(); err != nil {
 		panic(err) // Should not happen on initial setup
@@ -182,6 +196,13 @@ func (e *Engine) Reset() error {
 	e.nextPieceID = 1
 	e.locked = false
 	e.currentMove = nil
+	if e.temporalSlow == nil {
+		e.temporalSlow = make(map[Color]int, 2)
+	} else {
+		for k := range e.temporalSlow {
+			delete(e.temporalSlow, k)
+		}
+	}
 	if e.configured == nil {
 		e.configured = make(map[Color]bool, 2)
 	} else {
@@ -532,6 +553,7 @@ func (e *Engine) snapshot() undoState {
 		configured:    cloneColorBoolMap(e.configured),
 		pendingDoOver: cloneIntBoolMap(e.pendingDoOver),
 		currentMove:   moveCopy,
+		temporalSlow:  cloneColorIntMap(e.temporalSlow),
 	}
 	return s
 }
@@ -544,6 +566,7 @@ func (e *Engine) applySnapshot(s undoState) {
 	e.locked = s.locked
 	e.configured = cloneColorBoolMap(s.configured)
 	e.pendingDoOver = cloneIntBoolMap(s.pendingDoOver)
+	e.temporalSlow = cloneColorIntMap(s.temporalSlow)
 	if s.currentMove != nil {
 		e.currentMove = cloneMoveState(s.currentMove, mapping)
 	} else {
@@ -863,6 +886,9 @@ func (e *Engine) generateMoves(pc *Piece) Bitboard {
 	if pc.Abilities.Contains(AbilityScatterShot) {
 		moves = e.addScatterShotCaptures(pc, moves)
 	}
+	if e.resurrectionWindowActive(pc) {
+		moves = e.addResurrectionCaptureWindow(pc, moves)
+	}
 	return moves
 }
 
@@ -974,6 +1000,34 @@ func (e *Engine) addScatterShotCaptures(pc *Piece, moves Bitboard) Bitboard {
 	file := from.File()
 	for _, df := range []int{-1, 1} {
 		if target, ok := shared.SquareFromCoords(rank, file+df); ok {
+			occupant := e.board.pieceAt[target]
+			if occupant != nil && occupant.Color != pc.Color && e.canDirectCapture(pc, occupant, from, target) {
+				moves = moves.Add(target)
+			}
+		}
+	}
+	return moves
+}
+
+func (e *Engine) resurrectionWindowActive(pc *Piece) bool {
+	if pc == nil {
+		return false
+	}
+	if !pc.Abilities.Contains(AbilityResurrection) {
+		return false
+	}
+	if e.currentMove == nil || e.currentMove.Piece != pc {
+		return false
+	}
+	return e.currentMove.ResurrectionWindow
+}
+
+func (e *Engine) addResurrectionCaptureWindow(pc *Piece, moves Bitboard) Bitboard {
+	from := pc.Square
+	rank := from.Rank()
+	file := from.File()
+	for _, dr := range []int{-1, 1} {
+		if target, ok := shared.SquareFromCoords(rank+dr, file); ok {
 			occupant := e.board.pieceAt[target]
 			if occupant != nil && occupant.Color != pc.Color && e.canDirectCapture(pc, occupant, from, target) {
 				moves = moves.Add(target)
