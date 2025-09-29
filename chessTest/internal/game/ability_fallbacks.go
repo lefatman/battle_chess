@@ -50,6 +50,27 @@ type blazeRushFallbackHandler struct {
 	abilityHandlerBase
 }
 
+func (blazeRushFallbackHandler) PlanSpecialMove(ctx *SpecialMoveContext) (SpecialMovePlan, bool, error) {
+	return SpecialMovePlan{}, false, nil
+}
+
+func (blazeRushFallbackHandler) PrepareSegment(ctx *SegmentPreparationContext) error {
+	if ctx == nil || ctx.Engine == nil || ctx.Move == nil {
+		return nil
+	}
+	pc := ctx.Move.Piece
+	if pc == nil || !pc.Abilities.Contains(AbilityBlazeRush) {
+		return nil
+	}
+	if !ctx.Engine.isBlazeRushDash(pc, ctx.From, ctx.To, ctx.Segment.Capture) {
+		return nil
+	}
+	if ctx.StepCost != nil {
+		*ctx.StepCost = 0
+	}
+	return nil
+}
+
 func (blazeRushFallbackHandler) OnPostSegment(ctx PostSegmentContext) error {
 	if ctx.Engine == nil || ctx.Move == nil || ctx.Piece == nil {
 		return nil
@@ -76,6 +97,27 @@ func newFloodWakeFallbackHandler() AbilityHandler {
 
 type floodWakeFallbackHandler struct {
 	abilityHandlerBase
+}
+
+func (floodWakeFallbackHandler) PlanSpecialMove(ctx *SpecialMoveContext) (SpecialMovePlan, bool, error) {
+	return SpecialMovePlan{}, false, nil
+}
+
+func (floodWakeFallbackHandler) PrepareSegment(ctx *SegmentPreparationContext) error {
+	if ctx == nil || ctx.Engine == nil || ctx.Move == nil {
+		return nil
+	}
+	pc := ctx.Move.Piece
+	if pc == nil || !pc.Abilities.Contains(AbilityFloodWake) {
+		return nil
+	}
+	if !ctx.Engine.isFloodWakePushAvailable(pc, ctx.From, ctx.To, ctx.Segment.Capture) {
+		return nil
+	}
+	if ctx.StepCost != nil {
+		*ctx.StepCost = 0
+	}
+	return nil
 }
 
 func (floodWakeFallbackHandler) OnPostSegment(ctx PostSegmentContext) error {
@@ -106,6 +148,31 @@ type mistShroudFallbackHandler struct {
 	abilityHandlerBase
 }
 
+func (mistShroudFallbackHandler) PlanSpecialMove(ctx *SpecialMoveContext) (SpecialMovePlan, bool, error) {
+	return SpecialMovePlan{}, false, nil
+}
+
+func (mistShroudFallbackHandler) PrepareSegment(ctx *SegmentPreparationContext) error {
+	if ctx == nil || ctx.Engine == nil || ctx.Move == nil {
+		return nil
+	}
+	move := ctx.Move
+	pc := move.Piece
+	if pc == nil || !pc.Abilities.Contains(AbilityMistShroud) {
+		return nil
+	}
+	if move.abilityCounter(AbilityMistShroud, abilityCounterFree) != 0 {
+		return nil
+	}
+	if !ctx.Engine.wouldChangeDirection(move, ctx.From, ctx.To) {
+		return nil
+	}
+	if ctx.StepCost != nil && *ctx.StepCost > 0 {
+		*ctx.StepCost--
+	}
+	return nil
+}
+
 func (mistShroudFallbackHandler) OnDirectionChange(ctx DirectionChangeContext) bool {
 	if ctx.Engine == nil || ctx.Move == nil || ctx.Piece == nil {
 		return false
@@ -121,10 +188,101 @@ func (mistShroudFallbackHandler) OnDirectionChange(ctx DirectionChangeContext) b
 	return true
 }
 
+// newSideStepFallbackHandler returns a default handler that mirrors the
+// existing Side Step behaviour for engines without a registered handler.
+func newSideStepFallbackHandler() AbilityHandler {
+	return sideStepFallbackHandler{}
+}
+
+type sideStepFallbackHandler struct {
+	abilityHandlerBase
+}
+
+func (sideStepFallbackHandler) PlanSpecialMove(ctx *SpecialMoveContext) (SpecialMovePlan, bool, error) {
+	if ctx == nil || ctx.Engine == nil || ctx.Move == nil || ctx.Piece == nil {
+		return SpecialMovePlan{}, false, nil
+	}
+	pc := ctx.Piece
+	if !pc.Abilities.Contains(AbilitySideStep) {
+		return SpecialMovePlan{}, false, nil
+	}
+	if ctx.Move.abilityUsed(AbilitySideStep) || ctx.Move.RemainingSteps <= 0 {
+		return SpecialMovePlan{}, false, nil
+	}
+	if !isAdjacentSquare(ctx.From, ctx.To) {
+		return SpecialMovePlan{}, false, nil
+	}
+	if target := ctx.Engine.board.pieceAt[ctx.To]; target != nil {
+		return SpecialMovePlan{}, false, nil
+	}
+
+	plan := SpecialMovePlan{
+		StepCost:          1,
+		Action:            SpecialMoveActionMove,
+		Note:              "Side Step nudge (cost 1 step)",
+		Ability:           AbilitySideStep,
+		MarkAbilityUsed:   true,
+		ResetResurrection: true,
+	}
+
+	return plan, true, nil
+}
+
+// newQuantumStepFallbackHandler returns a default handler that mirrors the
+// existing Quantum Step behaviour for engines without a registered handler.
+func newQuantumStepFallbackHandler() AbilityHandler {
+	return quantumStepFallbackHandler{}
+}
+
+type quantumStepFallbackHandler struct {
+	abilityHandlerBase
+}
+
+func (quantumStepFallbackHandler) PlanSpecialMove(ctx *SpecialMoveContext) (SpecialMovePlan, bool, error) {
+	if ctx == nil || ctx.Engine == nil || ctx.Move == nil || ctx.Piece == nil {
+		return SpecialMovePlan{}, false, nil
+	}
+	pc := ctx.Piece
+	if !pc.Abilities.Contains(AbilityQuantumStep) {
+		return SpecialMovePlan{}, false, nil
+	}
+	if ctx.Move.abilityUsed(AbilityQuantumStep) || ctx.Move.RemainingSteps <= 0 {
+		return SpecialMovePlan{}, false, nil
+	}
+
+	ally, ok := ctx.Engine.validateQuantumStep(pc, ctx.From, ctx.To)
+	if !ok {
+		return SpecialMovePlan{}, false, nil
+	}
+
+	plan := SpecialMovePlan{
+		StepCost:          1,
+		Ability:           AbilityQuantumStep,
+		MarkAbilityUsed:   true,
+		ResetResurrection: true,
+	}
+
+	if ally == nil {
+		plan.Action = SpecialMoveActionMove
+		plan.Note = "Quantum Step blink (cost 1 step)"
+	} else {
+		plan.Action = SpecialMoveActionSwap
+		plan.SwapWith = ally
+		plan.Note = "Quantum Step swap (cost 1 step)"
+	}
+
+	return plan, true, nil
+}
+
 // Ensure the fallback handler satisfies optional interfaces used by the
 // dispatcher without exposing additional methods.
 var (
-	_ FreeContinuationHandler = blazeRushFallbackHandler{}
-	_ FreeContinuationHandler = floodWakeFallbackHandler{}
-	_ DirectionChangeHandler  = mistShroudFallbackHandler{}
+	_ FreeContinuationHandler   = blazeRushFallbackHandler{}
+	_ FreeContinuationHandler   = floodWakeFallbackHandler{}
+	_ DirectionChangeHandler    = mistShroudFallbackHandler{}
+	_ SegmentPreparationHandler = blazeRushFallbackHandler{}
+	_ SegmentPreparationHandler = floodWakeFallbackHandler{}
+	_ SegmentPreparationHandler = mistShroudFallbackHandler{}
+	_ SpecialMoveHandler        = sideStepFallbackHandler{}
+	_ SpecialMoveHandler        = quantumStepFallbackHandler{}
 )

@@ -243,6 +243,14 @@ func (e *Engine) instantiateAbilityHandlers(pc *Piece) (map[Ability][]AbilityHan
 		ensureHandlers()
 		handlers[AbilityFloodWake] = append(handlers[AbilityFloodWake], newFloodWakeFallbackHandler())
 	}
+	if pc.Abilities.Contains(AbilitySideStep) && len(handlers[AbilitySideStep]) == 0 {
+		ensureHandlers()
+		handlers[AbilitySideStep] = append(handlers[AbilitySideStep], newSideStepFallbackHandler())
+	}
+	if pc.Abilities.Contains(AbilityQuantumStep) && len(handlers[AbilityQuantumStep]) == 0 {
+		ensureHandlers()
+		handlers[AbilityQuantumStep] = append(handlers[AbilityQuantumStep], newQuantumStepFallbackHandler())
+	}
 	if pc.Abilities.Contains(AbilityMistShroud) && len(handlers[AbilityMistShroud]) == 0 {
 		ensureHandlers()
 		handlers[AbilityMistShroud] = append(handlers[AbilityMistShroud], newMistShroudFallbackHandler())
@@ -1097,235 +1105,117 @@ func (e *Engine) trySideStepNudge(pc *Piece, from, to Square) (bool, error) {
 	if e.currentMove == nil || pc == nil {
 		return false, nil
 	}
-	if handlers := e.handlersForAbility(AbilitySideStep); len(handlers) > 0 {
-		segmentStep := len(e.currentMove.Path) - 1
-		if segmentStep < 0 {
-			segmentStep = 0
-		}
-		ctx := &e.abilityCtx.segment
-		// Reuse the cached segment context slot to avoid a new allocation
-		// while building the special-move planning request.
-		*ctx = SegmentContext{
-			Engine:      e,
-			Move:        e.currentMove,
-			From:        from,
-			To:          to,
-			SegmentStep: segmentStep,
-		}
-		planCtx := SpecialMoveContext{
-			Engine:      e,
-			Move:        e.currentMove,
-			Piece:       pc,
-			From:        from,
-			To:          to,
-			Ability:     AbilitySideStep,
-			SegmentStep: segmentStep,
-		}
-		defer func() {
-			e.abilityCtx.segment = SegmentContext{}
-		}()
-		for _, handler := range handlers {
-			planner, ok := handler.(SpecialMoveHandler)
-			if !ok {
-				continue
-			}
-			plan, handled, err := planner.PlanSpecialMove(&planCtx)
-			if err != nil {
-				e.currentMove = nil
-				e.abilityCtx.clear()
-				return true, err
-			}
-			if !handled {
-				continue
-			}
-			if plan.MarkAbilityUsed && plan.Ability == AbilityNone {
-				plan.Ability = AbilitySideStep
-			}
-			if plan.Action == SpecialMoveActionNone {
-				plan.Action = SpecialMoveActionMove
-			}
-			if plan.StepCost < 0 {
-				plan.StepCost = 0
-			}
-			return true, e.executeSpecialMovePlan(pc, from, to, plan)
-		}
-	}
-	if !pc.Abilities.Contains(AbilitySideStep) || e.currentMove.abilityUsed(AbilitySideStep) || e.currentMove.RemainingSteps <= 0 {
-		return false, nil
-	}
-	if !isAdjacentSquare(from, to) {
+
+	handlers := e.handlersForAbility(AbilitySideStep)
+	if len(handlers) == 0 {
 		return false, nil
 	}
 
-	if target := e.board.pieceAt[to]; target != nil {
-		return false, nil
-	}
-
-	delta := e.pushHistory()
-	defer e.finalizeHistory(delta)
-
-	e.recordSquareForUndo(from)
-	e.recordSquareForUndo(to)
-	e.currentMove.RemainingSteps--
-	e.currentMove.markAbilityUsed(AbilitySideStep)
-
-	segmentCtx := moveSegmentContext{}
 	segmentStep := len(e.currentMove.Path) - 1
 	if segmentStep < 0 {
 		segmentStep = 0
 	}
-	if err := e.dispatchSegmentStartHandlers(from, to, segmentCtx.metadata(), segmentStep); err != nil {
-		e.currentMove = nil
-		e.abilityCtx.clear()
-		return true, err
-	}
-	e.executeMoveSegment(from, to, segmentCtx)
-	e.currentMove.Path = append(e.currentMove.Path, to)
-	if err := e.handlePostSegment(pc, from, to, segmentCtx.metadata()); err != nil {
-		e.currentMove = nil
-		e.abilityCtx.clear()
-		return true, err
-	}
 
-	if err := e.dispatchSegmentResolvedHandlers(from, to, segmentCtx.metadata(), segmentStep, 1); err != nil {
-		e.currentMove = nil
-		e.abilityCtx.clear()
-		return true, err
+	ctx := &e.abilityCtx.segment
+	*ctx = SegmentContext{
+		Engine:      e,
+		Move:        e.currentMove,
+		From:        from,
+		To:          to,
+		SegmentStep: segmentStep,
 	}
+	planCtx := SpecialMoveContext{
+		Engine:      e,
+		Move:        e.currentMove,
+		Piece:       pc,
+		From:        from,
+		To:          to,
+		Ability:     AbilitySideStep,
+		SegmentStep: segmentStep,
+	}
+	defer func() {
+		e.abilityCtx.segment = SegmentContext{}
+	}()
 
-	if e.currentMove != nil {
-		if pc.Abilities.Contains(AbilityResurrection) {
-			e.currentMove.setAbilityFlag(AbilityResurrection, abilityFlagWindow, false)
-			e.currentMove.setAbilityCounter(AbilityResurrection, abilityFlagWindow, 0)
+	for _, handler := range handlers {
+		planner, ok := handler.(SpecialMoveHandler)
+		if !ok {
+			continue
 		}
+		plan, handled, err := planner.PlanSpecialMove(&planCtx)
+		if err != nil {
+			e.currentMove = nil
+			e.abilityCtx.clear()
+			return true, err
+		}
+		if !handled {
+			continue
+		}
+		if plan.MarkAbilityUsed && plan.Ability == AbilityNone {
+			plan.Ability = AbilitySideStep
+		}
+		if plan.Action == SpecialMoveActionNone {
+			plan.Action = SpecialMoveActionMove
+		}
+		if plan.StepCost < 0 {
+			plan.StepCost = 0
+		}
+		return true, e.executeSpecialMovePlan(pc, from, to, plan)
 	}
 
-	appendAbilityNote(&e.board.lastNote, "Side Step nudge (cost 1 step)")
-
-	if e.checkPostCaptureTermination(pc, nil) {
-		e.endTurn(TurnEndForced)
-	} else if e.currentMove.RemainingSteps <= 0 && !e.hasFreeContinuation(pc) {
-		e.endTurn(TurnEndNatural)
-	} else {
-		appendAbilityNote(&e.board.lastNote, fmt.Sprintf("%d steps remaining", e.currentMove.RemainingSteps))
-	}
-
-	return true, nil
+	return false, nil
 }
 
 func (e *Engine) tryQuantumStep(pc *Piece, from, to Square) (bool, error) {
 	if e.currentMove == nil || pc == nil {
 		return false, nil
 	}
-	if handlers := e.handlersForAbility(AbilityQuantumStep); len(handlers) > 0 {
-		segmentStep := len(e.currentMove.Path) - 1
-		if segmentStep < 0 {
-			segmentStep = 0
-		}
-		planCtx := SpecialMoveContext{
-			Engine:      e,
-			Move:        e.currentMove,
-			Piece:       pc,
-			From:        from,
-			To:          to,
-			Ability:     AbilityQuantumStep,
-			SegmentStep: segmentStep,
-		}
-		for _, handler := range handlers {
-			planner, ok := handler.(SpecialMoveHandler)
-			if !ok {
-				continue
-			}
-			plan, handled, err := planner.PlanSpecialMove(&planCtx)
-			if err != nil {
-				e.currentMove = nil
-				e.abilityCtx.clear()
-				return true, err
-			}
-			if !handled {
-				continue
-			}
-			if plan.MarkAbilityUsed && plan.Ability == AbilityNone {
-				plan.Ability = AbilityQuantumStep
-			}
-			if plan.Action == SpecialMoveActionNone {
-				plan.Action = SpecialMoveActionMove
-			}
-			if plan.StepCost < 0 {
-				plan.StepCost = 0
-			}
-			return true, e.executeSpecialMovePlan(pc, from, to, plan)
-		}
-	}
-	if !pc.Abilities.Contains(AbilityQuantumStep) || e.currentMove.abilityUsed(AbilityQuantumStep) || e.currentMove.RemainingSteps <= 0 {
+	handlers := e.handlersForAbility(AbilityQuantumStep)
+	if len(handlers) == 0 {
 		return false, nil
-	}
-
-	ally, ok := e.validateQuantumStep(pc, from, to)
-	if !ok {
-		return false, nil
-	}
-
-	delta := e.pushHistory()
-	defer e.finalizeHistory(delta)
-
-	e.recordSquareForUndo(from)
-	e.recordSquareForUndo(to)
-	e.currentMove.RemainingSteps--
-	if e.currentMove.RemainingSteps < 0 {
-		e.currentMove.RemainingSteps = 0
-	}
-	e.currentMove.markAbilityUsed(AbilityQuantumStep)
-	if pc.Abilities.Contains(AbilityResurrection) {
-		e.currentMove.setAbilityFlag(AbilityResurrection, abilityFlagWindow, false)
-		e.currentMove.setAbilityCounter(AbilityResurrection, abilityFlagWindow, 0)
 	}
 
 	segmentStep := len(e.currentMove.Path) - 1
 	if segmentStep < 0 {
 		segmentStep = 0
 	}
-	segmentCtx := moveSegmentContext{}
-	if err := e.dispatchSegmentStartHandlers(from, to, segmentCtx.metadata(), segmentStep); err != nil {
-		e.currentMove = nil
-		e.abilityCtx.clear()
-		return true, err
-	}
-	if ally == nil {
-		e.executeMoveSegment(from, to, segmentCtx)
-		appendAbilityNote(&e.board.lastNote, "Quantum Step blink (cost 1 step)")
-	} else {
-		e.performQuantumSwap(pc, ally, from, to)
-		appendAbilityNote(&e.board.lastNote, "Quantum Step swap (cost 1 step)")
+	planCtx := SpecialMoveContext{
+		Engine:      e,
+		Move:        e.currentMove,
+		Piece:       pc,
+		From:        from,
+		To:          to,
+		Ability:     AbilityQuantumStep,
+		SegmentStep: segmentStep,
 	}
 
-	e.currentMove.Path = append(e.currentMove.Path, to)
-	if err := e.handlePostSegment(pc, from, to, segmentCtx.metadata()); err != nil {
-		e.currentMove = nil
-		e.abilityCtx.clear()
-		return true, err
+	for _, handler := range handlers {
+		planner, ok := handler.(SpecialMoveHandler)
+		if !ok {
+			continue
+		}
+		plan, handled, err := planner.PlanSpecialMove(&planCtx)
+		if err != nil {
+			e.currentMove = nil
+			e.abilityCtx.clear()
+			return true, err
+		}
+		if !handled {
+			continue
+		}
+		if plan.MarkAbilityUsed && plan.Ability == AbilityNone {
+			plan.Ability = AbilityQuantumStep
+		}
+		if plan.Action == SpecialMoveActionNone {
+			plan.Action = SpecialMoveActionMove
+		}
+		if plan.StepCost < 0 {
+			plan.StepCost = 0
+		}
+		return true, e.executeSpecialMovePlan(pc, from, to, plan)
 	}
 
-	if err := e.dispatchSegmentResolvedHandlers(from, to, segmentCtx.metadata(), segmentStep, 1); err != nil {
-		e.currentMove = nil
-		e.abilityCtx.clear()
-		return true, err
-	}
-
-	if e.checkPostCaptureTermination(pc, nil) {
-		e.endTurn(TurnEndForced)
-		return true, nil
-	}
-	if e.currentMove == nil {
-		return true, nil
-	}
-	if e.currentMove.RemainingSteps <= 0 && !e.hasFreeContinuation(pc) {
-		e.endTurn(TurnEndNatural)
-	} else {
-		appendAbilityNote(&e.board.lastNote, fmt.Sprintf("%d steps remaining", e.currentMove.RemainingSteps))
-	}
-
-	return true, nil
+	return false, nil
 }
 
 func (e *Engine) executeSpecialMovePlan(pc *Piece, from, to Square, plan SpecialMovePlan) error {
@@ -1673,33 +1563,8 @@ func (e *Engine) calculateStepBudget(pc *Piece, handlers map[Ability][]AbilityHa
 func (e *Engine) calculateMovementCost(pc *Piece, from, to Square) int {
 	cost := 1 // Basic movement costs 1 step.
 
-	target := e.board.pieceAt[to]
-
-	// Sliders (Queen, Rook, Bishop) pay an extra step to change direction mid-turn.
-	if e.isSlider(pc.Type) {
-		pathLen := 0
-		if e.currentMove != nil {
-			pathLen = len(e.currentMove.Path)
-		}
-		if pathLen > 1 {
-			prevFrom := e.currentMove.Path[pathLen-2]
-			prevDir := shared.DirectionOf(prevFrom, from)
-			currentDir := shared.DirectionOf(from, to)
-
-			if prevDir != currentDir && prevDir != DirNone && currentDir != DirNone {
-				if !(pc.Abilities.Contains(AbilityMistShroud) && e.currentMove != nil && e.currentMove.abilityCounter(AbilityMistShroud, abilityCounterFree) == 0) {
-					cost++ // Direction change costs an extra step.
-				}
-			}
-		}
-	}
-
-	if e.isFloodWakePushAvailable(pc, from, to, target) {
-		cost = 0
-	}
-
-	if e.isBlazeRushDash(pc, from, to, target) {
-		cost = 0
+	if e.currentMove != nil && e.wouldChangeDirection(e.currentMove, from, to) {
+		cost++ // Direction change costs an extra step.
 	}
 
 	return cost
@@ -1803,6 +1668,25 @@ func (e *Engine) logDirectionChange(pc *Piece, segmentStep int) {
 	}
 
 	appendAbilityNote(&e.board.lastNote, "Direction change cost +1 step")
+}
+
+func (e *Engine) wouldChangeDirection(move *MoveState, from, to Square) bool {
+	if move == nil || move.Piece == nil {
+		return false
+	}
+	if !e.isSlider(move.Piece.Type) {
+		return false
+	}
+	if len(move.Path) <= 1 {
+		return false
+	}
+	prevFrom := move.Path[len(move.Path)-2]
+	prevDir := shared.DirectionOf(prevFrom, from)
+	currentDir := shared.DirectionOf(from, to)
+	if prevDir == DirNone || currentDir == DirNone {
+		return false
+	}
+	return prevDir != currentDir
 }
 
 func (e *Engine) hasFreeContinuation(pc *Piece) bool {
