@@ -473,6 +473,134 @@ func TestFloodWakePushAfterSlide(t *testing.T) {
 	}
 }
 
+func TestQuantumStepBlinkConsumesStepAndBlocksSecondUse(t *testing.T) {
+	eng := NewEngine()
+	if err := eng.SetSideConfig(White, AbilityList{AbilityQuantumStep, AbilitySchrodingersLaugh}, ElementLight); err != nil {
+		t.Fatalf("configure white: %v", err)
+	}
+	if err := eng.SetSideConfig(Black, AbilityList{AbilityDoOver}, ElementShadow); err != nil {
+		t.Fatalf("configure black: %v", err)
+	}
+
+	clearBoard(eng)
+
+	start := mustSquare(t, "b1")
+	firstHop := mustSquare(t, "c3")
+	blinkDest := mustSquare(t, "c4")
+	secondTarget := mustSquare(t, "d5")
+	whiteKing := mustSquare(t, "h1")
+	blackKing := mustSquare(t, "h8")
+
+	eng.placePiece(White, King, whiteKing)
+	eng.placePiece(Black, King, blackKing)
+	eng.placePiece(White, Knight, start)
+	eng.placePiece(White, Bishop, secondTarget)
+	eng.board.turn = White
+
+	if err := eng.Move(MoveRequest{From: start, To: firstHop, Dir: DirNone}); err != nil {
+		t.Fatalf("initial knight move: %v", err)
+	}
+	if eng.currentMove == nil {
+		t.Fatalf("expected move to remain active after first segment")
+	}
+
+	remainingBefore := eng.currentMove.RemainingSteps
+	if remainingBefore == 0 {
+		t.Fatalf("expected steps remaining before quantum step")
+	}
+
+	if err := eng.Move(MoveRequest{From: firstHop, To: blinkDest, Dir: DirNone}); err != nil {
+		t.Fatalf("quantum step blink: %v", err)
+	}
+
+	knight := eng.board.pieceAt[blinkDest]
+	if knight == nil || knight.Type != Knight || knight.Color != White {
+		t.Fatalf("expected white knight to blink to %s", blinkDest)
+	}
+	if got := eng.board.pieceAt[firstHop]; got != nil {
+		t.Fatalf("expected square %s to be vacated after blink", firstHop)
+	}
+	if eng.currentMove.RemainingSteps != remainingBefore-1 {
+		t.Fatalf("expected steps to decrease by 1, got %d from %d", eng.currentMove.RemainingSteps, remainingBefore)
+	}
+	if !eng.currentMove.QuantumStepUsed {
+		t.Fatalf("expected quantum step flag to be set after blink")
+	}
+
+	stepsAfterBlink := eng.currentMove.RemainingSteps
+
+	if err := eng.Move(MoveRequest{From: blinkDest, To: secondTarget, Dir: DirNone}); err == nil {
+		t.Fatalf("expected second quantum step attempt to be rejected")
+	} else if !strings.Contains(err.Error(), "illegal") {
+		t.Fatalf("expected illegal move error, got %v", err)
+	}
+
+	if got := eng.board.pieceAt[blinkDest]; got == nil || got.Type != Knight {
+		t.Fatalf("expected knight to remain on %s after failed attempt", blinkDest)
+	}
+	if ally := eng.board.pieceAt[secondTarget]; ally == nil || ally.Type != Bishop {
+		t.Fatalf("expected bishop to remain on %s after failed attempt", secondTarget)
+	}
+	if eng.currentMove.RemainingSteps != stepsAfterBlink {
+		t.Fatalf("expected remaining steps to stay at %d after rejection, got %d", stepsAfterBlink, eng.currentMove.RemainingSteps)
+	}
+}
+
+func TestQuantumStepSwapMovesFriendlyPiece(t *testing.T) {
+	eng := NewEngine()
+	if err := eng.SetSideConfig(White, AbilityList{AbilityQuantumStep, AbilitySchrodingersLaugh}, ElementLight); err != nil {
+		t.Fatalf("configure white: %v", err)
+	}
+	if err := eng.SetSideConfig(Black, AbilityList{AbilityDoOver}, ElementShadow); err != nil {
+		t.Fatalf("configure black: %v", err)
+	}
+
+	clearBoard(eng)
+
+	start := mustSquare(t, "b1")
+	firstHop := mustSquare(t, "c3")
+	swapSquare := mustSquare(t, "c4")
+	whiteKing := mustSquare(t, "g1")
+	blackKing := mustSquare(t, "g8")
+
+	eng.placePiece(White, King, whiteKing)
+	eng.placePiece(Black, King, blackKing)
+	eng.placePiece(White, Knight, start)
+	eng.placePiece(White, Rook, swapSquare)
+	eng.board.turn = White
+
+	if err := eng.Move(MoveRequest{From: start, To: firstHop, Dir: DirNone}); err != nil {
+		t.Fatalf("initial knight move: %v", err)
+	}
+	if eng.currentMove == nil {
+		t.Fatalf("expected move to remain active after first segment")
+	}
+
+	remainingBefore := eng.currentMove.RemainingSteps
+	if remainingBefore == 0 {
+		t.Fatalf("expected steps remaining before swap")
+	}
+
+	if err := eng.Move(MoveRequest{From: firstHop, To: swapSquare, Dir: DirNone}); err != nil {
+		t.Fatalf("quantum step swap: %v", err)
+	}
+
+	knight := eng.board.pieceAt[swapSquare]
+	if knight == nil || knight.Type != Knight || knight.Color != White {
+		t.Fatalf("expected knight to occupy %s after swap", swapSquare)
+	}
+	rook := eng.board.pieceAt[firstHop]
+	if rook == nil || rook.Type != Rook || rook.Color != White {
+		t.Fatalf("expected rook to move to %s after swap", firstHop)
+	}
+	if eng.currentMove.RemainingSteps != remainingBefore-1 {
+		t.Fatalf("expected steps to decrease by 1 after swap, got %d from %d", eng.currentMove.RemainingSteps, remainingBefore)
+	}
+	if !eng.currentMove.QuantumStepUsed {
+		t.Fatalf("expected quantum step flag to be set after swap")
+	}
+}
+
 func TestQuantumKillRemoteRemovalHonorsRank(t *testing.T) {
 	eng := NewEngine()
 	if err := eng.SetSideConfig(White, AbilityList{AbilityQuantumKill}, ElementLight); err != nil {
