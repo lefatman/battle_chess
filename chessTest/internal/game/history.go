@@ -6,10 +6,10 @@ type undoState struct {
 	blockFacing   map[int]Direction
 	lastNote      string
 	locked        bool
-	configured    map[Color]bool
+	configured    [2]bool
 	pendingDoOver map[int]bool
 	currentMove   *MoveState
-	temporalSlow  map[Color]int
+	temporalSlow  [2]int
 }
 
 func cloneMoveState(src *MoveState, pieceMap map[*Piece]*Piece) *MoveState {
@@ -47,33 +47,11 @@ func cloneIntDirectionMap(src map[int]Direction) map[int]Direction {
 	return clone
 }
 
-func cloneColorBoolMap(src map[Color]bool) map[Color]bool {
-	if len(src) == 0 {
-		return make(map[Color]bool)
-	}
-	clone := make(map[Color]bool, len(src))
-	for k, v := range src {
-		clone[k] = v
-	}
-	return clone
-}
-
 func cloneIntBoolMap(src map[int]bool) map[int]bool {
 	if len(src) == 0 {
 		return make(map[int]bool)
 	}
 	clone := make(map[int]bool, len(src))
-	for k, v := range src {
-		clone[k] = v
-	}
-	return clone
-}
-
-func cloneColorIntMap(src map[Color]int) map[Color]int {
-	if len(src) == 0 {
-		return make(map[Color]int)
-	}
-	clone := make(map[Color]int, len(src))
 	for k, v := range src {
 		clone[k] = v
 	}
@@ -91,10 +69,10 @@ func (e *Engine) snapshot() undoState {
 		blockFacing:   cloneIntDirectionMap(e.blockFacing),
 		lastNote:      e.board.lastNote,
 		locked:        e.locked,
-		configured:    cloneColorBoolMap(e.configured),
+		configured:    e.configured,
 		pendingDoOver: cloneIntBoolMap(e.pendingDoOver),
 		currentMove:   moveCopy,
-		temporalSlow:  cloneColorIntMap(e.temporalSlow),
+		temporalSlow:  e.temporalSlow,
 	}
 	return s
 }
@@ -105,9 +83,9 @@ func (e *Engine) applySnapshot(s undoState) {
 	e.blockFacing = cloneIntDirectionMap(s.blockFacing)
 	e.board.lastNote = s.lastNote
 	e.locked = s.locked
-	e.configured = cloneColorBoolMap(s.configured)
+	e.configured = s.configured
 	e.pendingDoOver = cloneIntBoolMap(s.pendingDoOver)
-	e.temporalSlow = cloneColorIntMap(s.temporalSlow)
+	e.temporalSlow = s.temporalSlow
 	if s.currentMove != nil {
 		e.currentMove = cloneMoveState(s.currentMove, mapping)
 	} else {

@@ -503,17 +503,13 @@ func (e *Engine) applyTemporalLockSlow(pc *Piece) {
 	if pc == nil || !pc.Abilities.Contains(AbilityTemporalLock) {
 		return
 	}
-	if e.temporalSlow == nil {
-		e.temporalSlow = make(map[Color]int, 2)
-	}
-
 	slow := 1
 	if elementOf(e, pc) == ElementFire {
 		slow = 2
 	}
 
 	opponent := pc.Color.Opposite()
-	e.temporalSlow[opponent] = slow
+	e.temporalSlow[opponent.Index()] = slow
 	appendAbilityNote(&e.board.lastNote, fmt.Sprintf("Temporal Lock slows %s by %d", opponent, slow))
 }
 
@@ -555,12 +551,9 @@ func (e *Engine) calculateStepBudget(pc *Piece) int {
 			bonus++ // Interaction bonus with Side Step
 		}
 	}
-	slowPenalty := 0
-	if e.temporalSlow != nil {
-		if slow, ok := e.temporalSlow[pc.Color]; ok {
-			slowPenalty = slow
-			delete(e.temporalSlow, pc.Color)
-		}
+	slowPenalty := e.temporalSlow[pc.Color.Index()]
+	if slowPenalty > 0 {
+		e.temporalSlow[pc.Color.Index()] = 0
 	}
 
 	totalSteps := baseSteps + bonus - slowPenalty

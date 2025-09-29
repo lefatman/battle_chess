@@ -919,7 +919,7 @@ func TestResurrectionCaptureWindowExpires(t *testing.T) {
 	if steps := eng.calculateStepBudget(eng.board.pieceAt[start]); steps < 3 {
 		t.Fatalf("expected at least 3 steps with buffs, got %d", steps)
 	}
-	if eng.abilities[Black].Contains(AbilityDoOver) {
+	if eng.abilities[Black.Index()].Contains(AbilityDoOver) {
 		t.Fatalf("black side unexpectedly configured with Do-Over")
 	}
 	if pc := eng.board.pieceAt[firstCapture]; pc == nil {

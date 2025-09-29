@@ -11,16 +11,16 @@ import (
 // Engine encapsulates the optimized chess engine with ability metadata.
 type Engine struct {
 	board         Board
-	abilities     map[Color]AbilityList
-	elements      map[Color]Element
+	abilities     [2]AbilityList
+	elements      [2]Element
 	blockFacing   map[int]Direction
 	history       []undoState
 	nextPieceID   int
 	locked        bool
-	configured    map[Color]bool
+	configured    [2]bool
 	pendingDoOver map[int]bool // Tracks per-piece DoOver consumption
 	currentMove   *MoveState
-	temporalSlow  map[Color]int
+	temporalSlow  [2]int
 }
 
 // Board represents the state of the chessboard.
@@ -100,19 +100,13 @@ type BoardState struct {
 // NewEngine creates and initializes a new game engine.
 func NewEngine() *Engine {
 	eng := &Engine{
-		abilities: map[Color]AbilityList{
-			White: nil,
-			Black: nil,
-		},
-		elements: map[Color]Element{
-			White: ElementLight,
-			Black: ElementShadow,
-		},
+		abilities:     [2]AbilityList{},
+		elements:      [2]Element{ElementLight, ElementShadow},
 		blockFacing:   make(map[int]Direction),
-		configured:    make(map[Color]bool, 2),
+		configured:    [2]bool{},
 		pendingDoOver: make(map[int]bool),
 		currentMove:   nil,
-		temporalSlow:  make(map[Color]int),
+		temporalSlow:  [2]int{},
 	}
 	if err := eng.Reset(); err != nil {
 		panic(err) // Should not happen on initial setup
@@ -128,19 +122,11 @@ func (e *Engine) Reset() error {
 	e.nextPieceID = 1
 	e.locked = false
 	e.currentMove = nil
-	if e.temporalSlow == nil {
-		e.temporalSlow = make(map[Color]int, 2)
-	} else {
-		for k := range e.temporalSlow {
-			delete(e.temporalSlow, k)
-		}
+	for i := range e.temporalSlow {
+		e.temporalSlow[i] = 0
 	}
-	if e.configured == nil {
-		e.configured = make(map[Color]bool, 2)
-	} else {
-		for k := range e.configured {
-			e.configured[k] = false
-		}
+	for i := range e.configured {
+		e.configured[i] = false
 	}
 	if e.pendingDoOver == nil {
 		e.pendingDoOver = make(map[int]bool)
@@ -181,11 +167,9 @@ func (e *Engine) SetSideConfig(color Color, abilities AbilityList, element Eleme
 	if e.locked {
 		return errors.New("configuration locked after game start")
 	}
-	if e.abilities == nil {
-		e.abilities = make(map[Color]AbilityList, 2)
-	}
-	e.abilities[color] = abilities.Clone()
-	e.elements[color] = element
+	idx := color.Index()
+	e.abilities[idx] = abilities.Clone()
+	e.elements[idx] = element
 	for _, pc := range e.board.pieceAt {
 		if pc != nil && pc.Color == color {
 			pc.Abilities = abilities.Clone()
@@ -202,7 +186,7 @@ func (e *Engine) SetSideConfig(color Color, abilities AbilityList, element Eleme
 			}
 		}
 	}
-	e.configured[color] = true
+	e.configured[idx] = true
 	e.board.lastNote = fmt.Sprintf("Configured %s: abilities=%v element=%s", color, abilities.Strings(), element)
 	return nil
 }
@@ -266,11 +250,11 @@ func (e *Engine) State() BoardState {
 		}
 	}
 
-	for color, abilities := range e.abilities {
-		state.Abilities[color.String()] = abilities.Strings()
+	for _, color := range []Color{White, Black} {
+		state.Abilities[color.String()] = e.abilities[color.Index()].Strings()
 	}
-	for color, element := range e.elements {
-		state.Elements[color.String()] = element.String()
+	for _, color := range []Color{White, Black} {
+		state.Elements[color.String()] = e.elements[color.Index()].String()
 	}
 	for id, dir := range e.blockFacing {
 		state.BlockFacing[id] = dir
@@ -287,7 +271,7 @@ func (e *Engine) flipTurn() { e.board.turn = e.board.turn.Opposite() }
 
 func (e *Engine) ensureConfigured() error {
 	for _, color := range []Color{White, Black} {
-		if !e.configured[color] {
+		if !e.configured[color.Index()] {
 			return fmt.Errorf("side %s not configured", color)
 		}
 	}
@@ -381,8 +365,8 @@ func elementOf(e *Engine, p *Piece) Element {
 	if p.Element != 0 && p.Element != ElementNone {
 		return p.Element
 	}
-	if e != nil && e.elements != nil {
-		return e.elements[p.Color]
+	if e != nil {
+		return e.elements[p.Color.Index()]
 	}
 	return ElementLight
 }

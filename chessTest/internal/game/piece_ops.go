@@ -67,8 +67,8 @@ func (e *Engine) placePiece(color Color, pt PieceType, sq Square) {
 		Color:     color,
 		Type:      pt,
 		Square:    sq,
-		Abilities: e.abilities[color].Clone(),
-		Element:   e.elements[color],
+		Abilities: e.abilities[color.Index()].Clone(),
+		Element:   e.elements[color.Index()],
 		BlockDir:  DirNone,
 	}
 	e.board.pieceAt[sq] = pc
@@ -189,17 +189,15 @@ func (e *Engine) canPhaseThrough(pc *Piece, _ Square, _ Square) bool {
 	hasBastion := pc.Abilities.Contains(AbilityBastion)
 	hasGale := pc.Abilities.Contains(AbilityGaleLift)
 
-	if e.abilities != nil {
-		if al, ok := e.abilities[pc.Color]; ok {
-			if al.Contains(AbilityFloodWake) {
-				hasFlood = true
-			}
-			if al.Contains(AbilityBastion) {
-				hasBastion = true
-			}
-			if al.Contains(AbilityGaleLift) {
-				hasGale = true
-			}
+	if al := e.abilities[pc.Color.Index()]; len(al) > 0 {
+		if al.Contains(AbilityFloodWake) {
+			hasFlood = true
+		}
+		if al.Contains(AbilityBastion) {
+			hasBastion = true
+		}
+		if al.Contains(AbilityGaleLift) {
+			hasGale = true
 		}
 	}
 
@@ -212,10 +210,8 @@ func (e *Engine) canPhaseThrough(pc *Piece, _ Square, _ Square) bool {
 	if pc.Abilities.Contains(AbilityUmbralStep) {
 		return true
 	}
-	if e.abilities != nil {
-		if al, ok := e.abilities[pc.Color]; ok && al.Contains(AbilityUmbralStep) {
-			return true
-		}
+	if al := e.abilities[pc.Color.Index()]; len(al) > 0 && al.Contains(AbilityUmbralStep) {
+		return true
 	}
 	return false
 }
