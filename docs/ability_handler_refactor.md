@@ -23,3 +23,18 @@ that future refactors can relocate the data into ability-owned handlers.
 | `LastSegmentCaptured` | Blaze Rush interaction | Per segment | Remembers whether the previous segment was a capture so Blaze Rush dashes are disallowed immediately afterward. 【F:chessTest/internal/game/moves.go†L32-L33】【F:chessTest/internal/game/moves.go†L648-L770】
 | `QuantumKillUsed` | Quantum Kill | Per turn | Locks out the once-per-capture removal burst after it fires. 【F:chessTest/internal/game/moves.go†L33-L33】【F:chessTest/internal/game/ability_resolver.go†L45-L63】
 
+## Function field usage audit
+
+### `MoveState.canCaptureMore`
+* Reads `Captures` to check how many pieces have been logged this turn before allowing further captures. 【F:chessTest/internal/game/moves.go†L38-L45】
+* Reads `MaxCaptures` so the capture budget computed at move start can end the turn when exhausted. 【F:chessTest/internal/game/moves.go†L38-L45】
+
+The method is called after every capture from both `startNewMove` and `continueMove`; in each case a `false` result ends the turn immediately, so callers depend on the capture tally staying in sync with the limit. 【F:chessTest/internal/game/moves.go†L174-L185】【F:chessTest/internal/game/moves.go†L301-L310】
+
+### `MoveState.registerCapture`
+* Appends the captured piece to `Captures`, which in turn feeds later `canCaptureMore` checks. 【F:chessTest/internal/game/moves.go†L48-L58】
+* Reads `HasResurrection` to decide whether to raise `ResurrectionWindow` for the follow-up action window. 【F:chessTest/internal/game/moves.go†L48-L58】【F:chessTest/internal/game/moves.go†L249-L250】
+* Reads `HasChainKill` and the mover's `Piece` color so it can increment `ChainKillCaptureCount` for hostile captures, enforcing the Chain Kill limit. 【F:chessTest/internal/game/moves.go†L48-L58】
+
+Both `startNewMove` and `continueMove` invoke `registerCapture` immediately after executing a capture. The resulting state enables Resurrection follow-ups to be detected on the next segment and ensures the capture budget reflects the new removal before `canCaptureMore` decides whether the player may continue. 【F:chessTest/internal/game/moves.go†L174-L185】【F:chessTest/internal/game/moves.go†L249-L310】
+
