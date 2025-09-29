@@ -263,6 +263,18 @@ func (e *Engine) instantiateAbilityHandlers(pc *Piece) (map[Ability][]AbilityHan
 		ensureHandlers()
 		handlers[AbilityScorch] = append(handlers[AbilityScorch], NewScorchHandler())
 	}
+	if pc.Abilities.Contains(AbilityTailwind) && len(handlers[AbilityTailwind]) == 0 {
+		ensureHandlers()
+		handlers[AbilityTailwind] = append(handlers[AbilityTailwind], NewTailwindHandler())
+	}
+	if pc.Abilities.Contains(AbilityRadiantVision) && len(handlers[AbilityRadiantVision]) == 0 {
+		ensureHandlers()
+		handlers[AbilityRadiantVision] = append(handlers[AbilityRadiantVision], NewRadiantVisionHandler())
+	}
+	if pc.Abilities.Contains(AbilityUmbralStep) && len(handlers[AbilityUmbralStep]) == 0 {
+		ensureHandlers()
+		handlers[AbilityUmbralStep] = append(handlers[AbilityUmbralStep], NewUmbralStepHandler())
+	}
 	if pc.Abilities.Contains(AbilityQuantumKill) && len(handlers[AbilityQuantumKill]) == 0 {
 		ensureHandlers()
 		handlers[AbilityQuantumKill] = append(handlers[AbilityQuantumKill], NewQuantumKillHandler())
@@ -270,6 +282,10 @@ func (e *Engine) instantiateAbilityHandlers(pc *Piece) (map[Ability][]AbilityHan
 	if pc.Abilities.Contains(AbilityChainKill) && len(handlers[AbilityChainKill]) == 0 {
 		ensureHandlers()
 		handlers[AbilityChainKill] = append(handlers[AbilityChainKill], NewChainKillHandler())
+	}
+	if pc.Abilities.Contains(AbilityGaleLift) && len(handlers[AbilityGaleLift]) == 0 {
+		ensureHandlers()
+		handlers[AbilityGaleLift] = append(handlers[AbilityGaleLift], NewGaleLiftHandler())
 	}
 	if pc.Abilities.Contains(AbilityPoisonousMeat) && len(handlers[AbilityPoisonousMeat]) == 0 {
 		ensureHandlers()
@@ -282,6 +298,10 @@ func (e *Engine) instantiateAbilityHandlers(pc *Piece) (map[Ability][]AbilityHan
 	if pc.Abilities.Contains(AbilityBastion) && len(handlers[AbilityBastion]) == 0 {
 		ensureHandlers()
 		handlers[AbilityBastion] = append(handlers[AbilityBastion], NewBastionHandler())
+	}
+	if pc.Abilities.Contains(AbilitySchrodingersLaugh) && len(handlers[AbilitySchrodingersLaugh]) == 0 {
+		ensureHandlers()
+		handlers[AbilitySchrodingersLaugh] = append(handlers[AbilitySchrodingersLaugh], NewSchrodingersLaughHandler())
 	}
 	if pc.Abilities.Contains(AbilityTemporalLock) && len(handlers[AbilityTemporalLock]) == 0 {
 		ensureHandlers()
@@ -1463,47 +1483,17 @@ func (e *Engine) endTurn(reason TurnEndReason) {
 // baseStepBudget calculates the total number of steps a piece gets for its turn without handler overrides.
 func (e *Engine) baseStepBudget(pc *Piece) int {
 	baseSteps := 1 // Every piece gets at least one step.
-	bonus := 0
-	element := elementOf(e, pc)
+	if pc == nil {
+		return baseSteps
+	}
 
-	// Elemental & Ability Bonuses/Penalties
-	if pc.Abilities.Contains(AbilityScorch) && element == ElementFire {
-		bonus++ // Scorch grants +1 step
-	}
-	if pc.Abilities.Contains(AbilityTailwind) && element == ElementAir {
-		bonus += 2 // Tailwind grants +2 steps
-		if pc.Abilities.Contains(AbilityTemporalLock) {
-			bonus-- // Temporal Lock slows Tailwind by 1
-		}
-	}
-	if pc.Abilities.Contains(AbilityRadiantVision) && element == ElementLight {
-		bonus++ // Radiant Vision grants +1 step
-		if pc.Abilities.Contains(AbilityMistShroud) {
-			bonus++ // Mist combo grants an additional step
-		}
-	}
-	if pc.Abilities.Contains(AbilityUmbralStep) && element == ElementShadow {
-		bonus += 2 // Umbral Step grants +2 steps
-		if pc.Abilities.Contains(AbilityRadiantVision) {
-			bonus-- // Radiant Vision dampens Umbral Step by 1
-		}
-	}
-	if pc.Abilities.Contains(AbilitySchrodingersLaugh) {
-		bonus += 2 // Schrodinger's Laugh grants +2 steps
-		if pc.Abilities.Contains(AbilitySideStep) {
-			bonus++ // Interaction bonus with Side Step
-		}
-	}
 	slowPenalty := e.temporalSlow[pc.Color.Index()]
 	if slowPenalty > 0 {
 		e.temporalSlow[pc.Color.Index()] = 0
+		baseSteps -= slowPenalty
 	}
 
-	totalSteps := baseSteps + bonus - slowPenalty
-	if totalSteps < 1 {
-		return 1 // A piece always gets at least 1 step.
-	}
-	return totalSteps
+	return baseSteps
 }
 
 func (e *Engine) calculateStepBudget(pc *Piece, handlers map[Ability][]AbilityHandler) (int, []string, error) {

@@ -8,6 +8,11 @@ import (
 func init() {
 	mustRegisterBuiltin(shared.AbilityDoubleKill, game.NewDoubleKillHandler)
 	mustRegisterBuiltin(shared.AbilityScorch, game.NewScorchHandler)
+	mustRegisterBuiltin(shared.AbilityTailwind, game.NewTailwindHandler)
+	mustRegisterBuiltin(shared.AbilityRadiantVision, game.NewRadiantVisionHandler)
+	mustRegisterBuiltin(shared.AbilityUmbralStep, game.NewUmbralStepHandler)
+	mustRegisterBuiltin(shared.AbilitySchrodingersLaugh, game.NewSchrodingersLaughHandler)
+	mustRegisterBuiltin(shared.AbilityGaleLift, game.NewGaleLiftHandler)
 	mustRegisterBuiltin(shared.AbilityQuantumKill, game.NewQuantumKillHandler)
 	mustRegisterBuiltin(shared.AbilityChainKill, game.NewChainKillHandler)
 	mustRegisterBuiltin(shared.AbilityPoisonousMeat, game.NewPoisonousMeatHandler)

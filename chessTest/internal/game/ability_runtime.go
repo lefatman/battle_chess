@@ -1,6 +1,10 @@
 package game
 
-import "battle_chess_poc/internal/shared"
+import (
+	"errors"
+
+	"battle_chess_poc/internal/shared"
+)
 
 // AbilityHandler represents the lifecycle hooks that an ability can implement
 // to integrate with the engine. Handlers may implement any subset of the
@@ -197,6 +201,13 @@ type CaptureOutcome struct {
 	StepAdjustment int
 	ForceTurnEnd   bool
 }
+
+var (
+	// ErrPhaseDenied indicates an ability explicitly vetoed phasing for the
+	// active move. Handlers should return this sentinel via CanPhase to
+	// communicate a hard block that overrides any later grants.
+	ErrPhaseDenied = errors.New("game: phasing denied by ability")
+)
 
 // ResurrectionContext captures the runtime data needed for handlers managing
 // Resurrection windows.
