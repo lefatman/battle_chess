@@ -107,7 +107,24 @@ Handlers that implement these hooks must directly manage the `MoveState` toggles
 Aggregates turn-start step counts by layering elemental + ability synergies and clearing any stored Temporal Lock slows. Each ability contribution is additive or subtractive: Scorch(+1), Tailwind(+2, -1 with Temporal Lock), Radiant Vision(+1, +1 more with Mist Shroud), Umbral Step(+2, -1 with Radiant Vision), and Schrodinger's Laugh(+2, +1 with Side Step). The routine also consumes the color's queued slow penalty. 【F:chessTest/internal/game/moves.go†L545-L589】
 
 ### `canPhaseThrough`
-Determines whether the mover may pass through blockers by combining personal abilities with player-wide grants. Flood Wake or Bastion anywhere on the team disables phasing; Gale Lift or Umbral Step (piece or global) enables it. The result is cached as `UsedPhasing`. 【F:chessTest/internal/game/piece_ops.go†L197-L231】
+Determines whether the mover may pass through blockers by combining personal abilities with player-wide grants. The routine inspects the following toggles before caching the outcome as `UsedPhasing`:
+
+* **Flood Wake (piece or side ability)** – Presence on the acting piece (`pc.Abilities`) or the mover's color entry in `e.abilities[color]` sets `hasFlood`, which immediately vetoes phasing. 【F:chessTest/internal/game/piece_ops.go†L205-L219】
+* **Bastion (piece or side ability)** – Mirrors Flood Wake's veto, disabling phasing for the entire move whenever found either on the piece or the color ability list. 【F:chessTest/internal/game/piece_ops.go†L205-L219】
+* **Gale Lift (piece or side ability)** – Grants phasing when present anywhere on the mover or the side list, provided neither Flood Wake nor Bastion blocked it first. 【F:chessTest/internal/game/piece_ops.go†L205-L224】
+* **Umbral Step (piece or side ability)** – Offers a fallback grant: if Gale Lift was absent but no vetoes fired, the piece or side owning Umbral Step still turns phasing on for the move. 【F:chessTest/internal/game/piece_ops.go†L224-L231】
+
+The checks give side-level abilities (`e.abilities[color].Contains`) equal priority with piece abilities, meaning a single team-wide veto (Flood Wake/Bastion) suppresses every mover, while a single team-wide grant (Gale Lift/Umbral Step) can elevate otherwise mundane pieces into phasing riders. 【F:chessTest/internal/game/piece_ops.go†L205-L231】
+
+#### Handler responsibilities for phasing
+
+In the handler model, phasing logic should surface through an `OnQueryPathingFlags` hook that runs **once per move** before path validation:
+
+* **Precompute grants and vetoes.** The handler must aggregate both piece-owned and side-owned sources into a single flag so per-segment path checks can consult a cached `UsedPhasing` value instead of re-evaluating abilities for every square traversed. 【F:chessTest/internal/game/moves.go†L134-L152】【F:chessTest/internal/game/piece_ops.go†L197-L231】
+* **Respect priority ordering.** Veto abilities (Flood Wake, Bastion) must override grants, while Gale Lift and Umbral Step may independently supply the pass-through permission. 【F:chessTest/internal/game/piece_ops.go†L205-L231】
+* **Mirror side-ability reach.** Side-level toggles need to be queried alongside the piece so team-wide buffs or bans continue to propagate to every mover in the turn. 【F:chessTest/internal/game/piece_ops.go†L205-L231】
+
+By collapsing the decision into the move-start snapshot, path validation can continue to rely on the inexpensive `UsedPhasing` check while allowing ability-owned handlers to determine the value. 【F:chessTest/internal/game/moves.go†L134-L152】
 
 ### `handlePostSegment`
 
