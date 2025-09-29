@@ -143,6 +143,7 @@ func (d *historyDelta) apply(e *Engine) {
 	} else {
 		e.currentMove = nil
 	}
+	e.abilityCtx.clear()
 }
 
 func clonePieceState(pc *Piece) Piece {

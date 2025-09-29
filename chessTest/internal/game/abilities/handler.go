@@ -9,122 +9,53 @@ import (
 	"battle_chess_poc/internal/shared"
 )
 
-// AbilityHandler represents the lifecycle hooks that an ability can implement
-// to integrate with the engine. Handlers may implement any subset of the
-// methods; unused hooks should return default values.
-type AbilityHandler interface {
-	StepBudgetModifier(ctx StepBudgetContext) (StepBudgetDelta, error)
-	CanPhase(ctx PhaseContext) (bool, error)
-	OnMoveStart(ctx MoveLifecycleContext) error
-	OnSegmentStart(ctx SegmentContext) error
-	OnCapture(ctx CaptureContext) error
-	OnTurnEnd(ctx TurnEndContext) error
-}
-
 // HandlerFactory constructs a new AbilityHandler instance.
-type HandlerFactory func() AbilityHandler
+type HandlerFactory func() game.AbilityHandler
 
-// StepBudgetContext carries the data required to adjust the initial step budget
-// for a move.
-type StepBudgetContext struct {
-	Engine *game.Engine
-	Piece  *game.Piece
-	Move   *game.MoveState // nil before the MoveState is created
-}
-
-// StepBudgetDelta encapsulates modifications to the starting step budget.
-type StepBudgetDelta struct {
-	AddSteps int
-	Notes    []string
-}
-
-// PhaseContext supplies phasing calculations with the origin and destination
-// squares under consideration.
-type PhaseContext struct {
-	Engine *game.Engine
-	Piece  *game.Piece
-	From   shared.Square
-	To     shared.Square
-}
-
-// MoveLifecycleContext provides data for hooks that run when a new move begins.
-type MoveLifecycleContext struct {
-	Engine  *game.Engine
-	Move    *game.MoveState
-	Request game.MoveRequest
-	Segment SegmentMetadata
-}
-
-// SegmentMetadata mirrors the runtime data captured for a move segment.
-type SegmentMetadata struct {
-	Capture       *game.Piece
-	CaptureSquare shared.Square
-	EnPassant     bool
-}
-
-// SegmentContext tracks the state for a particular move segment within a turn.
-type SegmentContext struct {
-	Engine      *game.Engine
-	Move        *game.MoveState
-	From        shared.Square
-	To          shared.Square
-	Segment     SegmentMetadata
-	SegmentStep int // zero-based index within the turn
-}
-
-// CaptureContext mirrors the data supplied when a capture occurs during a
-// segment.
-type CaptureContext struct {
-	Engine        *game.Engine
-	Move          *game.MoveState
-	Attacker      *game.Piece
-	Victim        *game.Piece
-	CaptureSquare shared.Square
-	SegmentStep   int
-}
-
-// TurnEndContext communicates the reason a turn is ending along with the
-// active runtime state.
-type TurnEndContext struct {
-	Engine *game.Engine
-	Move   *game.MoveState
-	Reason TurnEndReason
-}
-
-// TurnEndReason describes why a turn is finishing.
-type TurnEndReason int
+// Re-export runtime context and helper types from the game package so ability
+// implementations can continue to reference the original names without pulling
+// in the entire engine package from call sites.
+type (
+	AbilityHandler       = game.AbilityHandler
+	StepBudgetContext    = game.StepBudgetContext
+	StepBudgetDelta      = game.StepBudgetDelta
+	PhaseContext         = game.PhaseContext
+	MoveLifecycleContext = game.MoveLifecycleContext
+	SegmentMetadata      = game.SegmentMetadata
+	SegmentContext       = game.SegmentContext
+	CaptureContext       = game.CaptureContext
+	TurnEndContext       = game.TurnEndContext
+	TurnEndReason        = game.TurnEndReason
+)
 
 const (
-	// TurnEndNatural indicates the player completed their turn normally.
-	TurnEndNatural TurnEndReason = iota
-	// TurnEndForced signals that an effect or rule forced the turn to stop.
-	TurnEndForced
-	// TurnEndCancelled denotes that the turn was aborted due to an error or veto.
-	TurnEndCancelled
+	TurnEndNatural   = game.TurnEndNatural
+	TurnEndForced    = game.TurnEndForced
+	TurnEndCancelled = game.TurnEndCancelled
 )
 
 // HandlerFuncs provides a convenient adapter that allows handlers to override
 // only the hooks they need. Any nil function pointer results in a neutral
 // response so the registry can safely skip unused hooks.
 type HandlerFuncs struct {
-	StepBudgetModifierFunc func(StepBudgetContext) (StepBudgetDelta, error)
-	CanPhaseFunc           func(PhaseContext) (bool, error)
-	OnMoveStartFunc        func(MoveLifecycleContext) error
-	OnSegmentStartFunc     func(SegmentContext) error
-	OnCaptureFunc          func(CaptureContext) error
-	OnTurnEndFunc          func(TurnEndContext) error
+	StepBudgetModifierFunc func(game.StepBudgetContext) (game.StepBudgetDelta, error)
+	CanPhaseFunc           func(game.PhaseContext) (bool, error)
+	OnMoveStartFunc        func(game.MoveLifecycleContext) error
+	OnSegmentStartFunc     func(game.SegmentContext) error
+	OnCaptureFunc          func(game.CaptureContext) error
+	OnTurnEndFunc          func(game.TurnEndContext) error
 }
 
 // StepBudgetModifier invokes the configured modifier hook if present.
-func (hf HandlerFuncs) StepBudgetModifier(ctx StepBudgetContext) (StepBudgetDelta, error) {
+func (hf HandlerFuncs) StepBudgetModifier(ctx game.StepBudgetContext) (game.StepBudgetDelta, error) {
 	if hf.StepBudgetModifierFunc == nil {
-		return StepBudgetDelta{}, nil
+		return game.StepBudgetDelta{}, nil
 	}
 	return hf.StepBudgetModifierFunc(ctx)
 }
 
 // CanPhase invokes the configured phasing hook if present.
-func (hf HandlerFuncs) CanPhase(ctx PhaseContext) (bool, error) {
+func (hf HandlerFuncs) CanPhase(ctx game.PhaseContext) (bool, error) {
 	if hf.CanPhaseFunc == nil {
 		return false, nil
 	}
@@ -132,7 +63,7 @@ func (hf HandlerFuncs) CanPhase(ctx PhaseContext) (bool, error) {
 }
 
 // OnMoveStart invokes the configured move-start hook if present.
-func (hf HandlerFuncs) OnMoveStart(ctx MoveLifecycleContext) error {
+func (hf HandlerFuncs) OnMoveStart(ctx game.MoveLifecycleContext) error {
 	if hf.OnMoveStartFunc == nil {
 		return nil
 	}
@@ -140,7 +71,7 @@ func (hf HandlerFuncs) OnMoveStart(ctx MoveLifecycleContext) error {
 }
 
 // OnSegmentStart invokes the configured segment-start hook if present.
-func (hf HandlerFuncs) OnSegmentStart(ctx SegmentContext) error {
+func (hf HandlerFuncs) OnSegmentStart(ctx game.SegmentContext) error {
 	if hf.OnSegmentStartFunc == nil {
 		return nil
 	}
@@ -148,7 +79,7 @@ func (hf HandlerFuncs) OnSegmentStart(ctx SegmentContext) error {
 }
 
 // OnCapture invokes the configured capture hook if present.
-func (hf HandlerFuncs) OnCapture(ctx CaptureContext) error {
+func (hf HandlerFuncs) OnCapture(ctx game.CaptureContext) error {
 	if hf.OnCaptureFunc == nil {
 		return nil
 	}
@@ -156,7 +87,7 @@ func (hf HandlerFuncs) OnCapture(ctx CaptureContext) error {
 }
 
 // OnTurnEnd invokes the configured turn-end hook if present.
-func (hf HandlerFuncs) OnTurnEnd(ctx TurnEndContext) error {
+func (hf HandlerFuncs) OnTurnEnd(ctx game.TurnEndContext) error {
 	if hf.OnTurnEndFunc == nil {
 		return nil
 	}
@@ -203,7 +134,7 @@ func Register(id shared.Ability, ctor HandlerFactory) error {
 
 // New creates a handler instance for the requested ability using the registered
 // factory.
-func New(id shared.Ability) (AbilityHandler, error) {
+func New(id shared.Ability) (game.AbilityHandler, error) {
 	registryMu.RLock()
 	ctor := registry[id]
 	registryMu.RUnlock()

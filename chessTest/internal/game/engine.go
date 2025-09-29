@@ -10,18 +10,20 @@ import (
 
 // Engine encapsulates the optimized chess engine with ability metadata.
 type Engine struct {
-	board         Board
-	abilities     [2]AbilityList
-	elements      [2]Element
-	blockFacing   map[int]Direction
-	history       []*historyDelta
-	activeDelta   *historyDelta
-	nextPieceID   int
-	locked        bool
-	configured    [2]bool
-	pendingDoOver map[int]bool // Tracks per-piece DoOver consumption
-	currentMove   *MoveState
-	temporalSlow  [2]int
+	board           Board
+	abilities       [2]AbilityList
+	elements        [2]Element
+	blockFacing     map[int]Direction
+	history         []*historyDelta
+	activeDelta     *historyDelta
+	nextPieceID     int
+	locked          bool
+	configured      [2]bool
+	pendingDoOver   map[int]bool // Tracks per-piece DoOver consumption
+	currentMove     *MoveState
+	temporalSlow    [2]int
+	abilityHandlers map[Ability][]AbilityHandler
+	abilityCtx      abilityContextCache
 }
 
 // Board represents the state of the chessboard.
@@ -96,18 +98,26 @@ type BoardState struct {
 	Castling         CastlingRights      `json:"castling"`
 	EnPassant        EnPassantTarget     `json:"enPassant"`
 	PromotionChoices PromotionChoices    `json:"promotionChoices"`
+	AbilityRuntime   AbilityRuntimeState `json:"abilityRuntime,omitempty"`
+}
+
+// AbilityRuntimeState summarizes the engine's ability handler runtime for debugging.
+type AbilityRuntimeState struct {
+	HandlerCounts map[string]int  `json:"handlerCounts,omitempty"`
+	CacheUsage    map[string]bool `json:"cacheUsage,omitempty"`
 }
 
 // NewEngine creates and initializes a new game engine.
 func NewEngine() *Engine {
 	eng := &Engine{
-		abilities:     [2]AbilityList{},
-		elements:      [2]Element{ElementLight, ElementShadow},
-		blockFacing:   make(map[int]Direction),
-		configured:    [2]bool{},
-		pendingDoOver: make(map[int]bool),
-		currentMove:   nil,
-		temporalSlow:  [2]int{},
+		abilities:       [2]AbilityList{},
+		elements:        [2]Element{ElementLight, ElementShadow},
+		blockFacing:     make(map[int]Direction),
+		configured:      [2]bool{},
+		pendingDoOver:   make(map[int]bool),
+		currentMove:     nil,
+		temporalSlow:    [2]int{},
+		abilityHandlers: make(map[Ability][]AbilityHandler),
 	}
 	if err := eng.Reset(); err != nil {
 		panic(err) // Should not happen on initial setup
@@ -117,6 +127,7 @@ func NewEngine() *Engine {
 
 // Reset clears the engine state and sets up a standard new game.
 func (e *Engine) Reset() error {
+	e.ensureAbilityRuntime()
 	e.board = Board{}
 	e.blockFacing = make(map[int]Direction)
 	e.history = e.history[:0]
@@ -265,7 +276,35 @@ func (e *Engine) State() BoardState {
 	state.Castling = e.board.Castling
 	state.EnPassant = e.board.EnPassant
 	state.PromotionChoices = e.board.PromotionChoices
+	state.AbilityRuntime = e.abilityRuntimeState()
 
+	return state
+}
+
+func (e *Engine) ensureAbilityRuntime() {
+	if e.abilityHandlers == nil {
+		e.abilityHandlers = make(map[Ability][]AbilityHandler)
+	}
+	e.abilityCtx.clear()
+}
+
+func (e *Engine) abilityRuntimeState() AbilityRuntimeState {
+	state := AbilityRuntimeState{}
+	if len(e.abilityHandlers) > 0 {
+		counts := make(map[string]int, len(e.abilityHandlers))
+		for ability, handlers := range e.abilityHandlers {
+			if len(handlers) == 0 {
+				continue
+			}
+			counts[ability.String()] = len(handlers)
+		}
+		if len(counts) > 0 {
+			state.HandlerCounts = counts
+		}
+	}
+	if usage := e.abilityCtx.usage(); len(usage) > 0 {
+		state.CacheUsage = usage
+	}
 	return state
 }
 
