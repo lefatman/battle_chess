@@ -106,7 +106,7 @@ func TestMistShroudFreePivot(t *testing.T) {
 	if eng.currentMove == nil {
 		t.Fatalf("expected current move to remain active after Mist Shroud pivot")
 	}
-	if got := eng.currentMove.FreeTurnsUsed; got != 1 {
+	if got := eng.currentMove.abilityCounter(AbilityMistShroud, abilityCounterFree); got != 1 {
 		t.Fatalf("expected one free pivot, got %d", got)
 	}
 	if got := eng.currentMove.RemainingSteps; got != 1 {
@@ -654,7 +654,7 @@ func TestQuantumStepBlinkConsumesStepAndBlocksSecondUse(t *testing.T) {
 	if eng.currentMove.RemainingSteps != remainingBefore-1 {
 		t.Fatalf("expected steps to decrease by 1, got %d from %d", eng.currentMove.RemainingSteps, remainingBefore)
 	}
-	if !eng.currentMove.QuantumStepUsed {
+	if !eng.currentMove.abilityUsed(AbilityQuantumStep) {
 		t.Fatalf("expected quantum step flag to be set after blink")
 	}
 
@@ -727,7 +727,7 @@ func TestQuantumStepSwapMovesFriendlyPiece(t *testing.T) {
 	if eng.currentMove.RemainingSteps != remainingBefore-1 {
 		t.Fatalf("expected steps to decrease by 1 after swap, got %d from %d", eng.currentMove.RemainingSteps, remainingBefore)
 	}
-	if !eng.currentMove.QuantumStepUsed {
+	if !eng.currentMove.abilityUsed(AbilityQuantumStep) {
 		t.Fatalf("expected quantum step flag to be set after swap")
 	}
 }
@@ -843,7 +843,7 @@ func TestSideStepNudge(t *testing.T) {
 		if got := eng.currentMove.RemainingSteps; got != stepsBefore-1 {
 			t.Fatalf("expected remaining steps to drop from %d to %d, got %d", stepsBefore, stepsBefore-1, got)
 		}
-		if !eng.currentMove.SideStepUsed {
+		if !eng.currentMove.abilityUsed(AbilitySideStep) {
 			t.Fatalf("expected side step usage to latch")
 		}
 		if pc := eng.board.pieceAt[diagonal]; pc == nil || pc.Color != White {
