@@ -13,6 +13,37 @@ func init() {
 	})
 }
 
+func TestMoveStateAbilityRuntimeZeroAlloc(t *testing.T) {
+	pc := &Piece{Abilities: AbilityList{AbilityResurrection, AbilityMistShroud}}
+	move := initializeMoveState(pc, 0, 3, nil, Pawn, false)
+
+	run := func() {
+		move.setAbilityFlag(AbilityResurrection, abilityFlagWindow, true)
+		_ = move.abilityFlag(AbilityResurrection, abilityFlagWindow)
+		move.setAbilityFlag(AbilityResurrection, abilityFlagWindow, false)
+
+		move.setAbilityFlag(AbilityNone, abilityFlagCaptureExtra, true)
+		_ = move.abilityFlag(AbilityNone, abilityFlagCaptureExtra)
+		move.setAbilityFlag(AbilityNone, abilityFlagCaptureExtra, false)
+
+		move.setAbilityCounter(AbilityResurrection, abilityCounterResurrectionHold, 1)
+		move.addAbilityCounter(AbilityResurrection, abilityCounterResurrectionHold, -1)
+		_ = move.abilityCounter(AbilityResurrection, abilityCounterResurrectionHold)
+
+		move.setAbilityCounter(AbilityNone, abilityCounterCaptures, 2)
+		_ = move.captureCount()
+		move.setAbilityCounter(AbilityNone, abilityCounterCaptures, 0)
+
+		move.setAbilityCounter(AbilityResurrection, abilityCounterResurrectionWindow, 1)
+		_ = move.abilityCounter(AbilityResurrection, abilityCounterResurrectionWindow)
+		move.setAbilityCounter(AbilityResurrection, abilityCounterResurrectionWindow, 0)
+	}
+
+	if allocs := testing.AllocsPerRun(100, run); allocs != 0 {
+		t.Fatalf("expected zero allocations during ability runtime operations, got %f", allocs)
+	}
+}
+
 func TestSliderOpeningMovesDoNotPanic(t *testing.T) {
 	tests := []struct {
 		name     string
