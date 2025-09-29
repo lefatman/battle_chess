@@ -29,6 +29,7 @@ type MoveState struct {
 	FloodWakePushUsed     bool // Track Flood Wake push usage
 	ResurrectionQueue     []*Piece
 	MaxCaptures           int
+	LastSegmentCaptured   bool
 }
 
 func (ms *MoveState) canCaptureMore() bool {
@@ -131,6 +132,7 @@ func (e *Engine) startNewMove(req MoveRequest) error {
 	// The move is now valid, push the state before executing.
 	e.pushHistory()
 	e.executeMoveSegment(from, to)
+	e.handlePostSegment(pc, from, to, target)
 
 	// Handle capture abilities if a piece was taken.
 	if target != nil {
@@ -161,7 +163,9 @@ func (e *Engine) startNewMove(req MoveRequest) error {
 	e.checkPostMoveAbilities(pc)
 
 	// Check if the turn should end naturally.
-	if e.currentMove.RemainingSteps <= 0 || e.currentMove.TurnEnded {
+	if e.currentMove.TurnEnded {
+		e.endTurn()
+	} else if e.currentMove.RemainingSteps <= 0 && !e.hasFreeContinuation(pc) {
 		e.endTurn()
 	} else {
 		appendAbilityNote(&e.board.lastNote, fmt.Sprintf("%d steps remaining", e.currentMove.RemainingSteps))
@@ -205,6 +209,8 @@ func (e *Engine) continueMove(req MoveRequest) error {
 	e.pushHistory()
 	e.currentMove.RemainingSteps -= stepsNeeded
 	e.executeMoveSegment(from, to)
+	e.currentMove.Path = append(e.currentMove.Path, to)
+	e.handlePostSegment(pc, from, to, target)
 
 	if target != nil {
 		e.currentMove.registerCapture(target)
@@ -219,7 +225,9 @@ func (e *Engine) continueMove(req MoveRequest) error {
 	}
 
 	// Check for turn-ending conditions after the action.
-	if e.checkPostCaptureTermination(pc, target) || e.currentMove.RemainingSteps <= 0 {
+	if e.checkPostCaptureTermination(pc, target) {
+		e.endTurn()
+	} else if e.currentMove.RemainingSteps <= 0 && !e.hasFreeContinuation(pc) {
 		e.endTurn()
 	} else {
 		appendAbilityNote(&e.board.lastNote, fmt.Sprintf("%d steps remaining", e.currentMove.RemainingSteps))
@@ -309,12 +317,21 @@ func (e *Engine) calculateStepBudget(pc *Piece) int {
 	}
 	if pc.Abilities.Contains(AbilityTailwind) && element == ElementAir {
 		bonus += 2 // Tailwind grants +2 steps
+		if pc.Abilities.Contains(AbilityTemporalLock) {
+			bonus-- // Temporal Lock slows Tailwind by 1
+		}
 	}
 	if pc.Abilities.Contains(AbilityRadiantVision) && element == ElementLight {
 		bonus++ // Radiant Vision grants +1 step
+		if pc.Abilities.Contains(AbilityMistShroud) {
+			bonus++ // Mist combo grants an additional step
+		}
 	}
 	if pc.Abilities.Contains(AbilityUmbralStep) && element == ElementShadow {
 		bonus += 2 // Umbral Step grants +2 steps
+		if pc.Abilities.Contains(AbilityRadiantVision) {
+			bonus-- // Radiant Vision dampens Umbral Step by 1
+		}
 	}
 	if pc.Abilities.Contains(AbilityBelligerent) {
 		bonus++ // Belligerent grants +1 step
@@ -347,6 +364,8 @@ func (e *Engine) calculateStepBudget(pc *Piece) int {
 func (e *Engine) calculateMovementCost(pc *Piece, from, to Square) int {
 	cost := 1 // Basic movement costs 1 step.
 
+	target := e.board.pieceAt[to]
+
 	// Sliders (Queen, Rook, Bishop) pay an extra step to change direction mid-turn.
 	if e.isSlider(pc.Type) {
 		pathLen := 0
@@ -359,12 +378,249 @@ func (e *Engine) calculateMovementCost(pc *Piece, from, to Square) int {
 			currentDir := shared.DirectionOf(from, to)
 
 			if prevDir != currentDir && prevDir != DirNone && currentDir != DirNone {
-				cost++ // Direction change costs an extra step.
-				appendAbilityNote(&e.board.lastNote, "Direction change cost +1 step")
+				if !(pc.Abilities.Contains(AbilityMistShroud) && e.currentMove != nil && e.currentMove.FreeTurnsUsed == 0) {
+					cost++ // Direction change costs an extra step.
+				}
 			}
 		}
 	}
+
+	if e.isFloodWakePushAvailable(pc, from, to, target) {
+		cost = 0
+	}
+
+	if e.isBlazeRushDash(pc, from, to, target) {
+		cost = 0
+	}
+
 	return cost
+}
+
+func (e *Engine) isFloodWakePushAvailable(pc *Piece, from, to Square, target *Piece) bool {
+	if pc == nil || target != nil {
+		return false
+	}
+	if !pc.Abilities.Contains(AbilityFloodWake) {
+		return false
+	}
+	if elementOf(e, pc) != ElementWater {
+		return false
+	}
+	dr := absInt(to.Rank() - from.Rank())
+	df := absInt(to.File() - from.File())
+	if dr+df != 1 {
+		return false
+	}
+	if e.currentMove != nil && e.currentMove.FloodWakePushUsed {
+		return false
+	}
+	return true
+}
+
+func (e *Engine) isBlazeRushDash(pc *Piece, from, to Square, target *Piece) bool {
+	if pc == nil || target != nil {
+		return false
+	}
+	if !pc.Abilities.Contains(AbilityBlazeRush) {
+		return false
+	}
+	if !e.isSlider(pc.Type) {
+		return false
+	}
+	if e.currentMove == nil {
+		return false
+	}
+	if e.currentMove.BlazeRushUsed || e.currentMove.LastSegmentCaptured {
+		return false
+	}
+	pathLen := len(e.currentMove.Path)
+	var prevStart, prevEnd Square
+	switch {
+	case pathLen >= 3 && e.currentMove.Path[pathLen-1] == to && e.currentMove.Path[pathLen-2] == from:
+		prevStart = e.currentMove.Path[pathLen-3]
+		prevEnd = from
+	case pathLen >= 2 && e.currentMove.Path[pathLen-1] == from:
+		prevStart = e.currentMove.Path[pathLen-2]
+		prevEnd = from
+	default:
+		return false
+	}
+	if !e.blazeRushSegmentOk(prevStart, prevEnd, from, to) {
+		return false
+	}
+	return true
+}
+
+func (e *Engine) handlePostSegment(pc *Piece, from, to Square, target *Piece) {
+	if e.currentMove == nil {
+		return
+	}
+
+	e.currentMove.LastSegmentCaptured = target != nil
+
+	if e.isFloodWakePushAvailable(pc, from, to, target) {
+		e.currentMove.FloodWakePushUsed = true
+		appendAbilityNote(&e.board.lastNote, "Flood Wake push (free)")
+	}
+
+	if e.isBlazeRushDash(pc, from, to, target) {
+		e.currentMove.BlazeRushUsed = true
+		appendAbilityNote(&e.board.lastNote, "Blaze Rush dash (free)")
+	}
+
+	e.logDirectionChange(pc)
+}
+
+func (e *Engine) logDirectionChange(pc *Piece) {
+	if e.currentMove == nil || !e.isSlider(pc.Type) {
+		return
+	}
+	if len(e.currentMove.Path) < 3 {
+		return
+	}
+
+	last := len(e.currentMove.Path) - 1
+	prevStart := e.currentMove.Path[last-2]
+	prevEnd := e.currentMove.Path[last-1]
+	currentEnd := e.currentMove.Path[last]
+	prevDir := shared.DirectionOf(prevStart, prevEnd)
+	currentDir := shared.DirectionOf(prevEnd, currentEnd)
+	if prevDir == DirNone || currentDir == DirNone || prevDir == currentDir {
+		return
+	}
+
+	if pc.Abilities.Contains(AbilityMistShroud) && e.currentMove.FreeTurnsUsed == 0 {
+		e.currentMove.FreeTurnsUsed++
+		appendAbilityNote(&e.board.lastNote, "Mist Shroud free pivot")
+		return
+	}
+
+	appendAbilityNote(&e.board.lastNote, "Direction change cost +1 step")
+}
+
+func (e *Engine) hasFreeContinuation(pc *Piece) bool {
+	if e.currentMove == nil || pc == nil {
+		return false
+	}
+	if e.hasBlazeRushOption(pc) {
+		return true
+	}
+	if e.hasFloodWakePushOption(pc) {
+		return true
+	}
+	return false
+}
+
+func (e *Engine) hasBlazeRushOption(pc *Piece) bool {
+	if pc == nil || !pc.Abilities.Contains(AbilityBlazeRush) {
+		return false
+	}
+	if e.currentMove == nil || e.currentMove.BlazeRushUsed || e.currentMove.LastSegmentCaptured {
+		return false
+	}
+	if !e.isSlider(pc.Type) {
+		return false
+	}
+	if len(e.currentMove.Path) < 2 {
+		return false
+	}
+	prevFrom := e.currentMove.Path[len(e.currentMove.Path)-2]
+	prevTo := e.currentMove.Path[len(e.currentMove.Path)-1]
+	dr, df, ok := directionStep(shared.DirectionOf(prevFrom, prevTo))
+	if !ok {
+		return false
+	}
+	nextRank := prevTo.Rank() + dr
+	nextFile := prevTo.File() + df
+	if sq, valid := shared.SquareFromCoords(nextRank, nextFile); valid {
+		if e.board.pieceAt[sq] == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *Engine) blazeRushSegmentOk(prevStart, prevEnd, from, to Square) bool {
+	prevDir := shared.DirectionOf(prevStart, prevEnd)
+	currentDir := shared.DirectionOf(from, to)
+	if prevDir == DirNone || currentDir == DirNone || prevDir != currentDir {
+		return false
+	}
+	steps := maxInt(absInt(to.Rank()-from.Rank()), absInt(to.File()-from.File()))
+	if steps == 0 || steps > 2 {
+		return false
+	}
+	for _, sq := range shared.Line(from, to) {
+		if e.board.pieceAt[sq] != nil {
+			return false
+		}
+	}
+	return true
+}
+
+func (e *Engine) hasFloodWakePushOption(pc *Piece) bool {
+	if pc == nil || !pc.Abilities.Contains(AbilityFloodWake) {
+		return false
+	}
+	if e.currentMove == nil || e.currentMove.FloodWakePushUsed {
+		return false
+	}
+	if elementOf(e, pc) != ElementWater {
+		return false
+	}
+	offsets := [...]struct{ dr, df int }{
+		{dr: 1, df: 0},
+		{dr: -1, df: 0},
+		{dr: 0, df: 1},
+		{dr: 0, df: -1},
+	}
+	for _, off := range offsets {
+		rank := pc.Square.Rank() + off.dr
+		file := pc.Square.File() + off.df
+		if sq, valid := shared.SquareFromCoords(rank, file); valid {
+			if e.board.pieceAt[sq] == nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func directionStep(dir Direction) (int, int, bool) {
+	switch dir {
+	case DirN:
+		return -1, 0, true
+	case DirNE:
+		return -1, 1, true
+	case DirE:
+		return 0, 1, true
+	case DirSE:
+		return 1, 1, true
+	case DirS:
+		return 1, 0, true
+	case DirSW:
+		return 1, -1, true
+	case DirW:
+		return 0, -1, true
+	case DirNW:
+		return -1, -1, true
+	default:
+		return 0, 0, false
+	}
+}
+
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // ---------------------------
@@ -409,6 +665,31 @@ func (e *Engine) checkPostMoveAbilities(pc *Piece) {
 // Move Legality Helpers
 // ---------------------------
 
+func (e *Engine) pathIsPassable(pc *Piece, from, to Square) bool {
+	line := shared.Line(from, to)
+	if len(line) == 0 {
+		return true
+	}
+
+	canPhase := e.canPhaseThrough(pc, from, to)
+	for _, sq := range line {
+		occupant := e.board.pieceAt[sq]
+		if occupant == nil {
+			continue
+		}
+		if occupant.Color == pc.Color {
+			return false
+		}
+		if !canPhase {
+			return false
+		}
+		if occupant.Abilities.Contains(AbilityIndomitable) {
+			return false
+		}
+	}
+	return true
+}
+
 // isLegalFirstSegment checks if the initial move is valid.
 func (e *Engine) isLegalFirstSegment(pc *Piece, from, to Square) bool {
 	// A real implementation uses detailed move generation.
@@ -417,8 +698,8 @@ func (e *Engine) isLegalFirstSegment(pc *Piece, from, to Square) bool {
 	if !moves.Has(to) {
 		return false
 	}
-	if !e.canPhaseThrough(pc, from, to) && !e.isPathClear(from, to) {
-		return false // Path is blocked
+	if !e.pathIsPassable(pc, from, to) {
+		return false
 	}
 	return true
 }

@@ -461,6 +461,31 @@ func (e *Engine) canPhaseThrough(pc *Piece, _ Square, _ Square) bool {
 	if pc == nil {
 		return false
 	}
+
+	hasFlood := pc.Abilities.Contains(AbilityFloodWake)
+	hasBastion := pc.Abilities.Contains(AbilityBastion)
+	hasGale := pc.Abilities.Contains(AbilityGaleLift)
+
+	if e.abilities != nil {
+		if al, ok := e.abilities[pc.Color]; ok {
+			if al.Contains(AbilityFloodWake) {
+				hasFlood = true
+			}
+			if al.Contains(AbilityBastion) {
+				hasBastion = true
+			}
+			if al.Contains(AbilityGaleLift) {
+				hasGale = true
+			}
+		}
+	}
+
+	if hasFlood || hasBastion {
+		return false
+	}
+	if hasGale {
+		return true
+	}
 	if pc.Abilities.Contains(AbilityUmbralStep) {
 		return true
 	}
