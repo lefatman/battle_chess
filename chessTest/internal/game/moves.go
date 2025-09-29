@@ -249,7 +249,7 @@ func (e *Engine) continueMove(req MoveRequest) error {
 
 	if len(e.handlersForAbility(AbilityResurrection)) == 0 && pc.Abilities.Contains(AbilityResurrection) && e.currentMove.abilityFlag(AbilityResurrection, abilityFlagWindow) {
 		e.currentMove.setAbilityFlag(AbilityResurrection, abilityFlagWindow, false)
-		e.currentMove.setAbilityCounter(AbilityResurrection, abilityFlagWindow, 0)
+		e.currentMove.setAbilityCounter(AbilityResurrection, abilityCounterResurrectionWindow, 0)
 	}
 
 	delta := e.pushHistory()

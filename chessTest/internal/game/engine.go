@@ -688,7 +688,7 @@ func (e *Engine) resurrectionWindowActive(pc *Piece) bool {
 	if e.currentMove == nil || e.currentMove.Piece != pc {
 		return false
 	}
-	if e.currentMove.abilityCounter(AbilityResurrection, abilityFlagWindow) > 0 {
+	if e.currentMove.abilityCounter(AbilityResurrection, abilityCounterResurrectionWindow) > 0 {
 		return true
 	}
 	return e.currentMove.abilityFlag(AbilityResurrection, abilityFlagWindow)

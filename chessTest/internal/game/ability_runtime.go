@@ -3,97 +3,133 @@ package game
 
 import "errors"
 
+type abilityFlagIndex uint8
+
+const (
+	abilityFlagUsed abilityFlagIndex = iota
+	abilityFlagWindow
+	abilityFlagCaptureExtra
+	abilityFlagCount
+)
+
+type abilityCounterIndex uint8
+
+const (
+	abilityCounterFree abilityCounterIndex = iota
+	abilityCounterCaptures
+	abilityCounterCaptureLimit
+	abilityCounterCaptureSquare
+	abilityCounterCaptureSegment
+	abilityCounterCaptureEnPassant
+	abilityCounterResurrectionHold
+	abilityCounterResurrectionWindow
+	abilityCounterCount
+)
+
+const (
+	abilityCounterMax = int16(32767)
+	abilityCounterMin = int16(-32768)
+)
+
 // AbilityRuntime captures mutable per-ability state for the duration of a move.
-// Handlers can store arbitrary flags and counters keyed by semantic labels.
+// Handlers manipulate indexed flags and counters to avoid map churn in hot paths.
 type AbilityRuntime struct {
-	Flags    map[string]bool
-	Counters map[string]int
+	flags    [abilityFlagCount]bool
+	counters [abilityCounterCount]int16
 }
 
-// Clone produces a deep copy of the runtime data so history rewinds can
-// restore the per-ability state safely.
-func (ar *AbilityRuntime) Clone() *AbilityRuntime {
-	if ar == nil {
-		return nil
-	}
-	clone := &AbilityRuntime{}
-	if len(ar.Flags) > 0 {
-		clone.Flags = make(map[string]bool, len(ar.Flags))
-		for k, v := range ar.Flags {
-			clone.Flags[k] = v
-		}
-	}
-	if len(ar.Counters) > 0 {
-		clone.Counters = make(map[string]int, len(ar.Counters))
-		for k, v := range ar.Counters {
-			clone.Counters[k] = v
-		}
-	}
-	return clone
-}
-
-func (ar *AbilityRuntime) setFlag(key string, value bool) {
-	if ar == nil {
+func (ar *AbilityRuntime) setFlag(idx abilityFlagIndex, value bool) {
+	if ar == nil || idx >= abilityFlagCount {
 		return
 	}
-	if ar.Flags == nil {
-		ar.Flags = make(map[string]bool)
-	}
-	ar.Flags[key] = value
+	ar.flags[idx] = value
 }
 
-func (ar *AbilityRuntime) flag(key string) bool {
-	if ar == nil || len(ar.Flags) == 0 {
+func (ar *AbilityRuntime) flag(idx abilityFlagIndex) bool {
+	if ar == nil || idx >= abilityFlagCount {
 		return false
 	}
-	return ar.Flags[key]
+	return ar.flags[idx]
 }
 
-func (ar *AbilityRuntime) setCounter(key string, value int) {
-	if ar == nil {
+func (ar *AbilityRuntime) setCounter(idx abilityCounterIndex, value int) {
+	if ar == nil || idx >= abilityCounterCount {
 		return
 	}
-	if ar.Counters == nil {
-		ar.Counters = make(map[string]int)
+	if value > int(abilityCounterMax) {
+		value = int(abilityCounterMax)
+	} else if value < int(abilityCounterMin) {
+		value = int(abilityCounterMin)
 	}
-	ar.Counters[key] = value
+	ar.counters[idx] = int16(value)
 }
 
-func (ar *AbilityRuntime) addCounter(key string, delta int) int {
-	if ar == nil {
+func (ar *AbilityRuntime) addCounter(idx abilityCounterIndex, delta int) int {
+	if ar == nil || idx >= abilityCounterCount {
 		return 0
 	}
-	if ar.Counters == nil {
-		ar.Counters = make(map[string]int)
+	value := int(ar.counters[idx]) + delta
+	if value > int(abilityCounterMax) {
+		value = int(abilityCounterMax)
+	} else if value < int(abilityCounterMin) {
+		value = int(abilityCounterMin)
 	}
-	ar.Counters[key] += delta
-	return ar.Counters[key]
+	ar.counters[idx] = int16(value)
+	return value
 }
 
-func (ar *AbilityRuntime) counter(key string) int {
-	if ar == nil || len(ar.Counters) == 0 {
+func (ar *AbilityRuntime) counter(idx abilityCounterIndex) int {
+	if ar == nil || idx >= abilityCounterCount {
 		return 0
 	}
-	return ar.Counters[key]
+	return int(ar.counters[idx])
 }
 
-func newAbilityRuntimeMap(abilities AbilityList) map[Ability]*AbilityRuntime {
-	if len(abilities) == 0 {
-		return nil
-	}
-	runtimes := make(map[Ability]*AbilityRuntime, len(abilities))
+type abilityRuntimeTable struct {
+	used [AbilityCount]bool
+	data [AbilityCount]AbilityRuntime
+}
+
+func newAbilityRuntimeTable(abilities AbilityList) abilityRuntimeTable {
+	var table abilityRuntimeTable
+	table.use(AbilityNone)
 	for _, ability := range abilities {
-		if ability == AbilityNone {
-			continue
-		}
-		if _, exists := runtimes[ability]; !exists {
-			runtimes[ability] = &AbilityRuntime{}
-		}
+		table.use(ability)
 	}
-	if len(runtimes) == 0 {
+	return table
+}
+
+func (t *abilityRuntimeTable) use(id Ability) {
+	idx := abilityRuntimeIndex(id)
+	if idx < 0 {
+		return
+	}
+	t.used[idx] = true
+}
+
+func (t *abilityRuntimeTable) ensure(id Ability) *AbilityRuntime {
+	idx := abilityRuntimeIndex(id)
+	if idx < 0 {
 		return nil
 	}
-	return runtimes
+	t.used[idx] = true
+	return &t.data[idx]
+}
+
+func (t *abilityRuntimeTable) get(id Ability) (*AbilityRuntime, bool) {
+	idx := abilityRuntimeIndex(id)
+	if idx < 0 || !t.used[idx] {
+		return nil, false
+	}
+	return &t.data[idx], true
+}
+
+func abilityRuntimeIndex(id Ability) int {
+	idx := int(id)
+	if idx < 0 || idx >= AbilityCount {
+		return -1
+	}
+	return idx
 }
 
 // AbilityHandler represents the lifecycle hooks that an ability can implement

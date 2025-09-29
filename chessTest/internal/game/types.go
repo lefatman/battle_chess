@@ -127,6 +127,8 @@ const (
 	AbilitySchrodingersLaugh
 )
 
+const AbilityCount = int(AbilitySchrodingersLaugh) + 1
+
 type AbilityList []Ability
 
 func (al AbilityList) Contains(target Ability) bool {

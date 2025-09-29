@@ -93,6 +93,7 @@ func resetResurrectionState(move *MoveState) {
 	}
 	move.setAbilityFlag(AbilityResurrection, abilityFlagWindow, false)
 	move.setAbilityCounter(AbilityResurrection, abilityCounterResurrectionHold, 0)
+	move.setAbilityCounter(AbilityResurrection, abilityCounterResurrectionWindow, 0)
 }
 
 var (

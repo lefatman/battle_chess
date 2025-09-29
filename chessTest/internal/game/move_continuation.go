@@ -153,7 +153,7 @@ func (e *Engine) executeSpecialMovePlan(pc *Piece, from, to Square, plan Special
 	}
 	if plan.ResetResurrection && pc != nil && pc.Abilities.Contains(AbilityResurrection) {
 		e.currentMove.setAbilityFlag(AbilityResurrection, abilityFlagWindow, false)
-		e.currentMove.setAbilityCounter(AbilityResurrection, abilityFlagWindow, 0)
+		e.currentMove.setAbilityCounter(AbilityResurrection, abilityCounterResurrectionWindow, 0)
 	}
 
 	segmentStep := len(e.currentMove.Path) - 1

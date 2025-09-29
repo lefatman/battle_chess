@@ -8,7 +8,7 @@ type MoveState struct {
 	RemainingSteps      int
 	Path                []Square
 	Captures            []*Piece
-	AbilityData         map[Ability]*AbilityRuntime
+	AbilityData         abilityRuntimeTable
 	TurnEnded           bool
 	LastSegmentCaptured bool
 	Promotion           PieceType
@@ -16,27 +16,17 @@ type MoveState struct {
 	Handlers            map[Ability][]AbilityHandler
 }
 
-const (
-	abilityFlagUsed         = "used"
-	abilityFlagWindow       = "window"
-	abilityFlagCaptureExtra = "captureExtra"
-
-	abilityCounterFree             = "free"
-	abilityCounterCaptures         = "captures"
-	abilityCounterCaptureLimit     = "captureLimit"
-	abilityCounterCaptureSquare    = "captureSquare"
-	abilityCounterCaptureSegment   = "captureSegment"
-	abilityCounterCaptureEnPassant = "captureEnPassant"
-	abilityCounterResurrectionHold = "resurrectionHold"
-)
-
 func initializeMoveState(pc *Piece, start Square, remaining int, handlers map[Ability][]AbilityHandler, promotion PieceType, promotionSet bool) *MoveState {
+	abilities := AbilityList(nil)
+	if pc != nil {
+		abilities = pc.Abilities
+	}
 	move := &MoveState{
 		Piece:          pc,
 		RemainingSteps: remaining,
 		Path:           []Square{start},
 		Captures:       make([]*Piece, 0, 2),
-		AbilityData:    newAbilityRuntimeMap(pc.Abilities),
+		AbilityData:    newAbilityRuntimeTable(abilities),
 		Promotion:      promotion,
 		PromotionSet:   promotionSet,
 		Handlers:       handlers,
@@ -46,43 +36,34 @@ func initializeMoveState(pc *Piece, start Square, remaining int, handlers map[Ab
 	move.setAbilityCounter(AbilityNone, abilityCounterCaptureSegment, -1)
 	move.setAbilityCounter(AbilityNone, abilityCounterCaptureSquare, -1)
 	move.setAbilityCounter(AbilityNone, abilityCounterCaptureEnPassant, 0)
+	move.setAbilityCounter(AbilityResurrection, abilityCounterResurrectionWindow, 0)
 	return move
-}
-
-func (ms *MoveState) ensureAbilityData() {
-	if ms.AbilityData == nil {
-		ms.AbilityData = make(map[Ability]*AbilityRuntime)
-	}
 }
 
 func (ms *MoveState) abilityRuntime(id Ability) *AbilityRuntime {
 	if ms == nil {
 		return nil
 	}
-	ms.ensureAbilityData()
-	rt, ok := ms.AbilityData[id]
-	if !ok {
-		rt = &AbilityRuntime{}
-		ms.AbilityData[id] = rt
-	}
-	return rt
+	return ms.AbilityData.ensure(id)
 }
 
-func (ms *MoveState) abilityFlag(id Ability, key string) bool {
-	if ms == nil || len(ms.AbilityData) == 0 {
+func (ms *MoveState) abilityFlag(id Ability, key abilityFlagIndex) bool {
+	if ms == nil {
 		return false
 	}
-	if rt, ok := ms.AbilityData[id]; ok {
+	if rt, ok := ms.AbilityData.get(id); ok {
 		return rt.flag(key)
 	}
 	return false
 }
 
-func (ms *MoveState) setAbilityFlag(id Ability, key string, value bool) {
+func (ms *MoveState) setAbilityFlag(id Ability, key abilityFlagIndex, value bool) {
 	if ms == nil {
 		return
 	}
-	ms.abilityRuntime(id).setFlag(key, value)
+	if rt := ms.abilityRuntime(id); rt != nil {
+		rt.setFlag(key, value)
+	}
 }
 
 func (ms *MoveState) abilityUsed(id Ability) bool {
@@ -97,28 +78,33 @@ func (ms *MoveState) clearAbilityUsed(id Ability) {
 	ms.setAbilityFlag(id, abilityFlagUsed, false)
 }
 
-func (ms *MoveState) abilityCounter(id Ability, key string) int {
-	if ms == nil || len(ms.AbilityData) == 0 {
+func (ms *MoveState) abilityCounter(id Ability, key abilityCounterIndex) int {
+	if ms == nil {
 		return 0
 	}
-	if rt, ok := ms.AbilityData[id]; ok {
+	if rt, ok := ms.AbilityData.get(id); ok {
 		return rt.counter(key)
 	}
 	return 0
 }
 
-func (ms *MoveState) setAbilityCounter(id Ability, key string, value int) {
+func (ms *MoveState) setAbilityCounter(id Ability, key abilityCounterIndex, value int) {
 	if ms == nil {
 		return
 	}
-	ms.abilityRuntime(id).setCounter(key, value)
+	if rt := ms.abilityRuntime(id); rt != nil {
+		rt.setCounter(key, value)
+	}
 }
 
-func (ms *MoveState) addAbilityCounter(id Ability, key string, delta int) int {
+func (ms *MoveState) addAbilityCounter(id Ability, key abilityCounterIndex, delta int) int {
 	if ms == nil {
 		return 0
 	}
-	return ms.abilityRuntime(id).addCounter(key, delta)
+	if rt := ms.abilityRuntime(id); rt != nil {
+		return rt.addCounter(key, delta)
+	}
+	return 0
 }
 
 func (ms *MoveState) handlersFor(id Ability) []AbilityHandler {
