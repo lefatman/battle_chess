@@ -112,11 +112,11 @@ func TestMistShroudFreePivot(t *testing.T) {
 	if eng.currentMove == nil {
 		t.Fatalf("expected current move to remain active after Mist Shroud pivot")
 	}
-	if got := eng.currentMove.abilityCounter(AbilityMistShroud, abilityCounterFree); got != 1 {
-		t.Fatalf("expected one free pivot, got %d", got)
-	}
 	if got := eng.currentMove.RemainingSteps; got != 1 {
 		t.Fatalf("expected 1 remaining step after pivot, got %d", got)
+	}
+	if !strings.Contains(eng.board.lastNote, "Mist Shroud free pivot") {
+		t.Fatalf("expected Mist Shroud pivot note, got %q", eng.board.lastNote)
 	}
 }
 
@@ -660,8 +660,8 @@ func TestQuantumStepBlinkConsumesStepAndBlocksSecondUse(t *testing.T) {
 	if eng.currentMove.RemainingSteps != remainingBefore-1 {
 		t.Fatalf("expected steps to decrease by 1, got %d from %d", eng.currentMove.RemainingSteps, remainingBefore)
 	}
-	if !eng.currentMove.abilityUsed(AbilityQuantumStep) {
-		t.Fatalf("expected quantum step flag to be set after blink")
+	if !strings.Contains(eng.board.lastNote, "Quantum Step blink (cost 1 step)") {
+		t.Fatalf("expected quantum step blink note, got %q", eng.board.lastNote)
 	}
 
 	stepsAfterBlink := eng.currentMove.RemainingSteps
@@ -733,8 +733,8 @@ func TestQuantumStepSwapMovesFriendlyPiece(t *testing.T) {
 	if eng.currentMove.RemainingSteps != remainingBefore-1 {
 		t.Fatalf("expected steps to decrease by 1 after swap, got %d from %d", eng.currentMove.RemainingSteps, remainingBefore)
 	}
-	if !eng.currentMove.abilityUsed(AbilityQuantumStep) {
-		t.Fatalf("expected quantum step flag to be set after swap")
+	if !strings.Contains(eng.board.lastNote, "Quantum Step swap (cost 1 step)") {
+		t.Fatalf("expected quantum step swap note, got %q", eng.board.lastNote)
 	}
 }
 
@@ -849,8 +849,8 @@ func TestSideStepNudge(t *testing.T) {
 		if got := eng.currentMove.RemainingSteps; got != stepsBefore-1 {
 			t.Fatalf("expected remaining steps to drop from %d to %d, got %d", stepsBefore, stepsBefore-1, got)
 		}
-		if !eng.currentMove.abilityUsed(AbilitySideStep) {
-			t.Fatalf("expected side step usage to latch")
+		if !strings.Contains(eng.board.lastNote, "Side Step nudge (cost 1 step)") {
+			t.Fatalf("expected side step nudge note, got %q", eng.board.lastNote)
 		}
 		if pc := eng.board.pieceAt[diagonal]; pc == nil || pc.Color != White {
 			t.Fatalf("expected white knight to occupy %s", diagonal.String())
@@ -1132,6 +1132,9 @@ func TestTemporalLockAppliesSlowToNextMover(t *testing.T) {
 	}
 	if eng.currentMove != nil {
 		t.Fatalf("expected no active move after slow applied")
+	}
+	if !strings.Contains(strings.ToLower(eng.board.lastNote), "temporal lock slows black by") {
+		t.Fatalf("expected temporal lock note, got %q", eng.board.lastNote)
 	}
 }
 
