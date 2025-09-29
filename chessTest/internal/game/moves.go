@@ -19,6 +19,7 @@ type MoveState struct {
 	HasQuantumKill        bool
 	HasDoubleKill         bool
 	HasResurrection       bool
+	ResurrectionWindow    bool
 	TurnEnded             bool
 	FreeTurnsUsed         int  // For Mist Shroud
 	BlazeRushUsed         bool // Once per turn
@@ -27,7 +28,6 @@ type MoveState struct {
 	TemporalLockUsed      bool // Once per turn
 	ChainKillCaptureCount int  // Track Chain Kill captures (max 2 additional)
 	FloodWakePushUsed     bool // Track Flood Wake push usage
-	ResurrectionQueue     []*Piece
 	MaxCaptures           int
 	LastSegmentCaptured   bool
 	QuantumKillUsed       bool
@@ -49,7 +49,7 @@ func (ms *MoveState) registerCapture(captured *Piece) {
 	}
 	ms.Captures = append(ms.Captures, captured)
 	if ms.HasResurrection {
-		ms.ResurrectionQueue = append(ms.ResurrectionQueue, captured)
+		ms.ResurrectionWindow = true
 	}
 	if ms.HasChainKill && captured.Color != ms.Piece.Color {
 		ms.ChainKillCaptureCount++
@@ -197,6 +197,10 @@ func (e *Engine) continueMove(req MoveRequest) error {
 		return fmt.Errorf("insufficient steps: %d needed, %d remaining", stepsNeeded, e.currentMove.RemainingSteps)
 	}
 
+	if e.currentMove.ResurrectionWindow {
+		e.currentMove.ResurrectionWindow = false
+	}
+
 	target := e.board.pieceAt[to]
 	if target != nil && target.Color == pc.Color {
 		return errors.New("cannot capture a friendly piece")
@@ -246,7 +250,7 @@ func (e *Engine) endTurn() {
 
 	pc := e.currentMove.Piece
 	e.resolvePromotion(pc)
-	e.handleResurrectionQueue()
+	e.applyTemporalLockSlow(pc)
 	e.flipTurn()
 	appendAbilityNote(&e.board.lastNote, fmt.Sprintf("%s's turn", e.board.turn))
 
@@ -254,52 +258,22 @@ func (e *Engine) endTurn() {
 	e.currentMove = nil
 }
 
-func (e *Engine) handleResurrectionQueue() {
-	if e.currentMove == nil || len(e.currentMove.ResurrectionQueue) == 0 {
+func (e *Engine) applyTemporalLockSlow(pc *Piece) {
+	if pc == nil || !pc.Abilities.Contains(AbilityTemporalLock) {
 		return
 	}
-
-	reviveSquare := e.findResurrectionSquare(e.currentMove.Piece)
-	if reviveSquare == -1 {
-		return
+	if e.temporalSlow == nil {
+		e.temporalSlow = make(map[Color]int, 2)
 	}
 
-	revived := e.currentMove.ResurrectionQueue[len(e.currentMove.ResurrectionQueue)-1]
-	e.currentMove.ResurrectionQueue = e.currentMove.ResurrectionQueue[:len(e.currentMove.ResurrectionQueue)-1]
-
-	e.placeRevivedPiece(revived, Square(reviveSquare))
-	appendAbilityNote(&e.board.lastNote, fmt.Sprintf("%s %s resurrected at %s", revived.Color, revived.Type, Square(reviveSquare)))
-}
-
-func (e *Engine) findResurrectionSquare(pc *Piece) int {
-	if pc == nil {
-		return -1
+	slow := 1
+	if elementOf(e, pc) == ElementFire {
+		slow = 2
 	}
 
-	deltas := []int{8, -8}
-	for _, delta := range deltas {
-		sqInt := int(pc.Square) + delta
-		if sqInt >= 0 && sqInt < 64 {
-			sq := Square(sqInt)
-			if e.board.pieceAt[sq] == nil {
-				return int(sq)
-			}
-		}
-	}
-
-	return -1
-}
-
-func (e *Engine) placeRevivedPiece(pc *Piece, sq Square) {
-	if pc == nil {
-		return
-	}
-	pc.Square = sq
-	pc.Element = elementOf(e, pc)
-	e.board.pieceAt[sq] = pc
-	e.board.pieces[pc.Color][pc.Type] = e.board.pieces[pc.Color][pc.Type].Add(sq)
-	e.board.occupancy[pc.Color] = e.board.occupancy[pc.Color].Add(sq)
-	e.board.allOcc = e.board.allOcc.Add(sq)
+	opponent := pc.Color.Opposite()
+	e.temporalSlow[opponent] = slow
+	appendAbilityNote(&e.board.lastNote, fmt.Sprintf("Temporal Lock slows %s by %d", opponent, slow))
 }
 
 // ---------------------------
@@ -343,11 +317,15 @@ func (e *Engine) calculateStepBudget(pc *Piece) int {
 			bonus++ // Interaction bonus with Side Step
 		}
 	}
-	// TODO: Add slow penalty from Temporal Lock
-	// slowPenalty := 0
-	// if slowAmount, ok := e.slowedPieces[pc.ID]; ok { ... }
+	slowPenalty := 0
+	if e.temporalSlow != nil {
+		if slow, ok := e.temporalSlow[pc.Color]; ok {
+			slowPenalty = slow
+			delete(e.temporalSlow, pc.Color)
+		}
+	}
 
-	totalSteps := baseSteps + bonus
+	totalSteps := baseSteps + bonus - slowPenalty
 	if totalSteps < 1 {
 		return 1 // A piece always gets at least 1 step.
 	}
