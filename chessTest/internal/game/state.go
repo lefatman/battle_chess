@@ -1095,6 +1095,32 @@ func (e *Engine) generatePawnMoves(pc *Piece) Bitboard {
 		}
 	}
 
+	hasUmbral := pc.Abilities.Contains(AbilityUmbralStep)
+	if !hasUmbral && e.abilities != nil {
+		if al, ok := e.abilities[pc.Color]; ok {
+			hasUmbral = al.Contains(AbilityUmbralStep)
+		}
+	}
+
+	if hasUmbral {
+		backwardRank := rank - dir
+		if target, ok := shared.SquareFromCoords(backwardRank, file); ok && e.board.pieceAt[target] == nil {
+			moves = moves.Add(target)
+		}
+
+		for _, df := range []int{-1, 1} {
+			captureRank := rank - dir
+			captureFile := file + df
+			if target, ok := shared.SquareFromCoords(captureRank, captureFile); ok {
+				if victim := e.board.pieceAt[target]; victim != nil && victim.Color != pc.Color && e.canDirectCapture(pc, victim, from, target) {
+					moves = moves.Add(target)
+				} else if epSq, ok := e.board.EnPassant.Square(); ok && epSq == target {
+					moves = moves.Add(target)
+				}
+			}
+		}
+	}
+
 	return moves
 }
 

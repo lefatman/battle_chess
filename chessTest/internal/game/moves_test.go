@@ -113,6 +113,105 @@ func TestMistShroudFreePivot(t *testing.T) {
 	}
 }
 
+func TestUmbralStepPawnMoves(t *testing.T) {
+	tests := []struct {
+		name           string
+		pawnColor      Color
+		whiteAbilities AbilityList
+		blackAbilities AbilityList
+		pawnSquare     string
+		backwardSquare string
+		captureSquare  string
+		captureColor   Color
+		expectBackward bool
+		expectCapture  bool
+	}{
+		{
+			name:           "WhitePawnWithUmbralStepCanRetreatAndCapture",
+			pawnColor:      White,
+			whiteAbilities: AbilityList{AbilityDoOver, AbilityUmbralStep},
+			blackAbilities: AbilityList{AbilityDoOver},
+			pawnSquare:     "d4",
+			backwardSquare: "d3",
+			captureSquare:  "c3",
+			captureColor:   Black,
+			expectBackward: true,
+			expectCapture:  true,
+		},
+		{
+			name:           "BlackPawnWithUmbralStepCanRetreatAndCapture",
+			pawnColor:      Black,
+			whiteAbilities: AbilityList{AbilityDoOver},
+			blackAbilities: AbilityList{AbilityDoOver, AbilityUmbralStep},
+			pawnSquare:     "d5",
+			backwardSquare: "d6",
+			captureSquare:  "c6",
+			captureColor:   White,
+			expectBackward: true,
+			expectCapture:  true,
+		},
+		{
+			name:           "PawnWithoutUmbralStepRemainsForwardOnly",
+			pawnColor:      White,
+			whiteAbilities: AbilityList{AbilityDoOver},
+			blackAbilities: AbilityList{AbilityDoOver},
+			pawnSquare:     "d4",
+			backwardSquare: "d3",
+			captureSquare:  "c3",
+			captureColor:   Black,
+			expectBackward: false,
+			expectCapture:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			eng := NewEngine()
+			if err := eng.SetSideConfig(White, tt.whiteAbilities, ElementLight); err != nil {
+				t.Fatalf("configure white: %v", err)
+			}
+			if err := eng.SetSideConfig(Black, tt.blackAbilities, ElementShadow); err != nil {
+				t.Fatalf("configure black: %v", err)
+			}
+
+			clearBoard(eng)
+
+			whiteKing := mustSquare(t, "e1")
+			blackKing := mustSquare(t, "e8")
+			eng.placePiece(White, King, whiteKing)
+			eng.placePiece(Black, King, blackKing)
+
+			pawnSq := mustSquare(t, tt.pawnSquare)
+			eng.placePiece(tt.pawnColor, Pawn, pawnSq)
+
+			if tt.captureSquare != "" {
+				captureSq := mustSquare(t, tt.captureSquare)
+				eng.placePiece(tt.captureColor, Knight, captureSq)
+			}
+
+			pc := eng.board.pieceAt[pawnSq]
+			if pc == nil {
+				t.Fatalf("no pawn at %s", tt.pawnSquare)
+			}
+
+			moves := eng.generatePawnMoves(pc)
+
+			backwardSq := mustSquare(t, tt.backwardSquare)
+			if got := moves.Has(backwardSq); got != tt.expectBackward {
+				t.Fatalf("backward move to %s expected %t, got %t", tt.backwardSquare, tt.expectBackward, got)
+			}
+
+			if tt.captureSquare != "" {
+				captureSq := mustSquare(t, tt.captureSquare)
+				if got := moves.Has(captureSq); got != tt.expectCapture {
+					t.Fatalf("capture move to %s expected %t, got %t", tt.captureSquare, tt.expectCapture, got)
+				}
+			}
+		})
+	}
+}
+
 func TestBlazeRushDashExtendsMove(t *testing.T) {
 	eng := NewEngine()
 	if err := eng.SetSideConfig(White, AbilityList{AbilityDoOver, AbilityBlazeRush}, ElementFire); err != nil {
