@@ -37,10 +37,10 @@ func TestSliderOpeningMovesDoNotPanic(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			eng := NewEngine()
-			if err := eng.SetSideConfig(White, AbilityList{AbilityDoOver}, ElementLight); err != nil {
+			if err := eng.SetSideConfig(White, AbilityList{AbilityStalwart}, ElementLight); err != nil {
 				t.Fatalf("configure white: %v", err)
 			}
-			if err := eng.SetSideConfig(Black, AbilityList{AbilityDoOver}, ElementShadow); err != nil {
+			if err := eng.SetSideConfig(Black, AbilityList{AbilityStalwart}, ElementShadow); err != nil {
 				t.Fatalf("configure black: %v", err)
 			}
 
@@ -173,6 +173,145 @@ func TestFloodWakeDisablesPhasing(t *testing.T) {
 	}
 	if eng.canPhaseThrough(rook, rookSq, rookSq) {
 		t.Fatalf("expected Flood Wake to suppress phasing despite Gale Lift")
+	}
+}
+
+func TestCastlingKingside(t *testing.T) {
+	eng := NewEngine()
+	if err := eng.SetSideConfig(White, AbilityList{AbilityStalwart}, ElementLight); err != nil {
+		t.Fatalf("configure white: %v", err)
+	}
+	if err := eng.SetSideConfig(Black, AbilityList{AbilityStalwart}, ElementShadow); err != nil {
+		t.Fatalf("configure black: %v", err)
+	}
+
+	clearBoard(eng)
+
+	whiteKing := mustSquare(t, "e1")
+	whiteRook := mustSquare(t, "h1")
+	blackKing := mustSquare(t, "e8")
+	eng.placePiece(White, King, whiteKing)
+	eng.placePiece(White, Rook, whiteRook)
+	eng.placePiece(Black, King, blackKing)
+	eng.board.turn = White
+	eng.board.Castling = CastlingRight(White, CastleKingside)
+
+	if err := eng.Move(MoveRequest{From: whiteKing, To: mustSquare(t, "g1"), Dir: DirNone}); err != nil {
+		t.Fatalf("castling move failed: %v", err)
+	}
+
+	kingDest := mustSquare(t, "g1")
+	rookDest := mustSquare(t, "f1")
+	if pc := eng.board.pieceAt[kingDest]; pc == nil || pc.Type != King || pc.Color != White {
+		t.Fatalf("expected white king on g1 after castling")
+	}
+	if pc := eng.board.pieceAt[rookDest]; pc == nil || pc.Type != Rook || pc.Color != White {
+		t.Fatalf("expected white rook on f1 after castling")
+	}
+	if eng.board.Castling.HasSide(White, CastleKingside) {
+		t.Fatalf("expected white kingside castling rights to be cleared")
+	}
+}
+
+func TestEnPassantCapture(t *testing.T) {
+	eng := NewEngine()
+	if err := eng.SetSideConfig(White, AbilityList{AbilityStalwart}, ElementLight); err != nil {
+		t.Fatalf("configure white: %v", err)
+	}
+	if err := eng.SetSideConfig(Black, AbilityList{AbilityStalwart}, ElementShadow); err != nil {
+		t.Fatalf("configure black: %v", err)
+	}
+
+	clearBoard(eng)
+
+	whiteKing := mustSquare(t, "e1")
+	blackKing := mustSquare(t, "g8")
+	whitePawn := mustSquare(t, "e5")
+	blackPawnStart := mustSquare(t, "d7")
+	blackPawnLanding := mustSquare(t, "d5")
+	enPassantSquare := mustSquare(t, "d6")
+
+	eng.placePiece(White, King, whiteKing)
+	eng.placePiece(Black, King, blackKing)
+	eng.placePiece(White, Pawn, whitePawn)
+	eng.placePiece(Black, Pawn, blackPawnStart)
+	eng.board.turn = Black
+	eng.board.Castling = CastlingNone
+	eng.board.EnPassant = NoEnPassantTarget()
+
+	if err := eng.Move(MoveRequest{From: blackPawnStart, To: blackPawnLanding, Dir: DirNone}); err != nil {
+		t.Fatalf("black double move failed: %v", err)
+	}
+
+	if sq, ok := eng.board.EnPassant.Square(); !ok || sq != enPassantSquare {
+		t.Fatalf("expected en passant target at d6, got %v", eng.board.EnPassant)
+	}
+
+	if err := eng.Move(MoveRequest{From: whitePawn, To: enPassantSquare, Dir: DirNone}); err != nil {
+		t.Fatalf("en passant capture failed: %v", err)
+	}
+
+	if pc := eng.board.pieceAt[enPassantSquare]; pc == nil || pc.Type != Pawn || pc.Color != White {
+		t.Fatalf("expected white pawn on d6 after en passant")
+	}
+	if pc := eng.board.pieceAt[blackPawnLanding]; pc != nil {
+		t.Fatalf("expected captured pawn removed from d5")
+	}
+	if eng.board.EnPassant.Valid() {
+		t.Fatalf("expected en passant target cleared after capture")
+	}
+	if !strings.Contains(eng.board.lastNote, "En passant capture") {
+		t.Fatalf("expected en passant note, got %q", eng.board.lastNote)
+	}
+}
+
+func TestPromotionSelection(t *testing.T) {
+	eng := NewEngine()
+        if err := eng.SetSideConfig(White, AbilityList{AbilityStalwart}, ElementLight); err != nil {
+                t.Fatalf("configure white: %v", err)
+        }
+        if err := eng.SetSideConfig(Black, AbilityList{AbilityStalwart}, ElementShadow); err != nil {
+                t.Fatalf("configure black: %v", err)
+        }
+
+	clearBoard(eng)
+
+        whiteKing := mustSquare(t, "e1")
+        blackKing := mustSquare(t, "g8")
+	pawnStart := mustSquare(t, "e7")
+	pawnPromotion := mustSquare(t, "e8")
+
+	eng.placePiece(White, King, whiteKing)
+	eng.placePiece(Black, King, blackKing)
+	eng.placePiece(White, Pawn, pawnStart)
+	eng.board.turn = White
+	eng.board.Castling = CastlingNone
+	eng.board.PromotionChoices = PromotionChoicesFromTypes(Knight)
+	eng.board.EnPassant = NoEnPassantTarget()
+
+	if occ := eng.board.pieceAt[pawnPromotion]; occ != nil {
+		t.Fatalf("expected promotion square empty, found %s %s", occ.Color.String(), occ.Type.String())
+	}
+
+	moves := eng.generateMoves(eng.board.pieceAt[pawnStart])
+	if !moves.Has(pawnPromotion) {
+		var squares []string
+		moves.Iter(func(s Square) {
+			squares = append(squares, s.String())
+		})
+		t.Fatalf("expected promotion square e8 in generated moves, got %v", squares)
+	}
+
+	req := MoveRequest{From: pawnStart, To: pawnPromotion, Dir: DirNone, Promotion: Knight, HasPromotion: true}
+	if err := eng.Move(req); err != nil {
+		t.Fatalf("promotion move failed: %v", err)
+	}
+
+	if pc := eng.board.pieceAt[pawnPromotion]; pc == nil || pc.Type != Knight || pc.Color != White {
+		t.Fatalf("expected promoted knight on e8")
+	}
+	if !strings.Contains(eng.board.lastNote, "Pawn promoted to N") {
+		t.Fatalf("expected promotion note, got %q", eng.board.lastNote)
 	}
 }
 

@@ -10,7 +10,11 @@ type (
 	Square    = shared.Square
 	Direction = shared.Direction
 
-	AbilityList = shared.AbilityList
+	AbilityList      = shared.AbilityList
+	CastlingRights   = shared.CastlingRights
+	CastlingSide     = shared.CastlingSide
+	EnPassantTarget  = shared.EnPassantTarget
+	PromotionChoices = shared.PromotionChoices
 )
 
 const (
@@ -70,11 +74,29 @@ const (
 	DirW    = shared.DirW
 	DirNW   = shared.DirNW
 	DirNone = shared.DirNone
+
+	CastlingNone = shared.CastlingNone
+	CastlingAll  = shared.CastlingAll
+
+	PromotionNone = shared.PromotionNone
+	PromotionAll  = shared.PromotionAll
+
+	CastleKingside  = shared.CastleKingside
+	CastleQueenside = shared.CastleQueenside
 )
 
 var (
-	AllAbilities = shared.AllAbilities
-	AllElements  = shared.AllElements
+	AllAbilities              = shared.AllAbilities
+	AllElements               = shared.AllElements
+	ParseCastlingRights       = shared.ParseCastlingRights
+	CastlingRight             = shared.CastlingRight
+	CastlingRightsForColor    = shared.CastlingRightsForColor
+	NewEnPassantTarget        = shared.NewEnPassantTarget
+	NoEnPassantTarget         = shared.NoEnPassantTarget
+	ParseEnPassantTarget      = shared.ParseEnPassantTarget
+	PromotionChoicesFromTypes = shared.PromotionChoicesFromTypes
+	ParsePromotionPiece       = shared.ParsePromotionPiece
+	ParsePromotionChoices     = shared.ParsePromotionChoices
 )
 
 type SideConfig = struct {

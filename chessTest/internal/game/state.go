@@ -108,17 +108,20 @@ func cloneColorIntMap(src map[Color]int) map[Color]int {
 
 // Board represents the state of the chessboard.
 type Board struct {
-	pieces    [2][6]Bitboard
-	occupancy [2]Bitboard
-	allOcc    Bitboard
-	pieceAt   [64]*Piece
-	turn      Color
-	lastNote  string
-	InCheck   bool
-	GameOver  bool
-	HasWinner bool
-	Winner    Color
-	Status    string
+	pieces           [2][6]Bitboard
+	occupancy        [2]Bitboard
+	allOcc           Bitboard
+	pieceAt          [64]*Piece
+	turn             Color
+	lastNote         string
+	InCheck          bool
+	GameOver         bool
+	HasWinner        bool
+	Winner           Color
+	Status           string
+	Castling         CastlingRights
+	EnPassant        EnPassantTarget
+	PromotionChoices PromotionChoices
 }
 
 // Piece represents a single piece on the board.
@@ -134,9 +137,11 @@ type Piece struct {
 
 // MoveRequest is passed in by an external layer to request a move.
 type MoveRequest struct {
-	From Square
-	To   Square
-	Dir  Direction // Chosen BlockPath direction after move
+	From         Square
+	To           Square
+	Dir          Direction // Chosen BlockPath direction after move
+	Promotion    PieceType
+	HasPromotion bool
 }
 
 // PieceState is a serializable representation of a Piece.
@@ -156,20 +161,23 @@ type PieceState struct {
 
 // BoardState is a serializable representation of the game state.
 type BoardState struct {
-	Pieces      []PieceState        `json:"pieces"`
-	Turn        Color               `json:"turn"`
-	TurnName    string              `json:"turnName"`
-	LastNote    string              `json:"lastNote"`
-	Abilities   map[string][]string `json:"abilities"`
-	Elements    map[string]string   `json:"elements"`
-	BlockFacing map[int]Direction   `json:"blockFacing"`
-	Locked      bool                `json:"locked"`
-	InCheck     bool                `json:"inCheck"`
-	GameOver    bool                `json:"gameOver"`
-	Status      string              `json:"status"`
-	HasWinner   bool                `json:"hasWinner"`
-	Winner      Color               `json:"winner"`
-	WinnerName  string              `json:"winnerName"`
+	Pieces           []PieceState        `json:"pieces"`
+	Turn             Color               `json:"turn"`
+	TurnName         string              `json:"turnName"`
+	LastNote         string              `json:"lastNote"`
+	Abilities        map[string][]string `json:"abilities"`
+	Elements         map[string]string   `json:"elements"`
+	BlockFacing      map[int]Direction   `json:"blockFacing"`
+	Locked           bool                `json:"locked"`
+	InCheck          bool                `json:"inCheck"`
+	GameOver         bool                `json:"gameOver"`
+	Status           string              `json:"status"`
+	HasWinner        bool                `json:"hasWinner"`
+	Winner           Color               `json:"winner"`
+	WinnerName       string              `json:"winnerName"`
+	Castling         CastlingRights      `json:"castling"`
+	EnPassant        EnPassantTarget     `json:"enPassant"`
+	PromotionChoices PromotionChoices    `json:"promotionChoices"`
 }
 
 // ---------------------------
@@ -245,6 +253,9 @@ func (e *Engine) Reset() error {
 	setup(White, 0, 1)
 	e.board.turn = White
 	e.board.lastNote = "New game"
+	e.board.Castling = CastlingAll
+	e.board.EnPassant = NoEnPassantTarget()
+	e.board.PromotionChoices = PromotionAll
 	e.updateGameStatus()
 	return nil
 }
@@ -351,6 +362,10 @@ func (e *Engine) State() BoardState {
 	for id, dir := range e.blockFacing {
 		state.BlockFacing[id] = dir
 	}
+
+	state.Castling = e.board.Castling
+	state.EnPassant = e.board.EnPassant
+	state.PromotionChoices = e.board.PromotionChoices
 
 	return state
 }
@@ -673,21 +688,53 @@ func appendAbilityNote(dst *string, note string) {
 	}
 }
 
-func (e *Engine) executeMoveSegment(from, to Square) {
-	pc := e.board.pieceAt[from]
-	target := e.board.pieceAt[to]
+type moveSegmentContext struct {
+	capture       *Piece
+	captureSquare Square
+	enPassant     bool
+}
 
-	if target != nil {
-		e.removePiece(target, to)
+func (e *Engine) executeMoveSegment(from, to Square, ctx moveSegmentContext) {
+	pc := e.board.pieceAt[from]
+	if pc == nil {
+		return
 	}
 
-	pc.Square = to
+	isCastle := pc.Type == King && from.Rank() == to.Rank() && absInt(to.File()-from.File()) == 2
+
+	if ctx.capture != nil {
+		e.updateCastlingRightsForCapture(ctx.capture, ctx.captureSquare)
+		e.removePiece(ctx.capture, ctx.captureSquare)
+		if ctx.enPassant {
+			appendAbilityNote(&e.board.lastNote, "En passant capture")
+		}
+	}
+
+	e.board.EnPassant = NoEnPassantTarget()
+
 	e.board.pieceAt[from] = nil
+	pc.Square = to
 	e.board.pieceAt[to] = pc
 
 	e.board.pieces[pc.Color][pc.Type] = e.board.pieces[pc.Color][pc.Type].Remove(from).Add(to)
 	e.board.occupancy[pc.Color] = e.board.occupancy[pc.Color].Remove(from).Add(to)
 	e.board.allOcc = e.board.allOcc.Remove(from).Add(to)
+
+	e.updateCastlingRightsForMove(pc, from)
+
+	if pc.Type == Pawn {
+		diff := to.Rank() - from.Rank()
+		if diff == 2 || diff == -2 {
+			midRank := from.Rank() + diff/2
+			if sq, ok := shared.SquareFromCoords(midRank, from.File()); ok {
+				e.board.EnPassant = NewEnPassantTarget(sq)
+			}
+		}
+	}
+
+	if isCastle {
+		e.performCastleRookMove(pc.Color, from, to)
+	}
 }
 
 func (e *Engine) placePiece(color Color, pt PieceType, sq Square) {
@@ -706,6 +753,90 @@ func (e *Engine) placePiece(color Color, pt PieceType, sq Square) {
 	e.board.pieces[color][pt] = e.board.pieces[color][pt].Add(sq)
 	e.board.occupancy[color] = e.board.occupancy[color].Add(sq)
 	e.board.allOcc = e.board.allOcc.Add(sq)
+}
+
+func castlingRightForRook(color Color, sq Square) CastlingRights {
+	switch color {
+	case White:
+		if sq.Rank() != 0 {
+			return CastlingNone
+		}
+		switch sq.File() {
+		case 0:
+			return CastlingRight(White, CastleQueenside)
+		case 7:
+			return CastlingRight(White, CastleKingside)
+		}
+	case Black:
+		if sq.Rank() != 7 {
+			return CastlingNone
+		}
+		switch sq.File() {
+		case 0:
+			return CastlingRight(Black, CastleQueenside)
+		case 7:
+			return CastlingRight(Black, CastleKingside)
+		}
+	}
+	return CastlingNone
+}
+
+func (e *Engine) updateCastlingRightsForMove(pc *Piece, from Square) {
+	if pc == nil {
+		return
+	}
+	switch pc.Type {
+	case King:
+		e.board.Castling = e.board.Castling.WithoutColor(pc.Color)
+	case Rook:
+		e.board.Castling = e.board.Castling.Without(castlingRightForRook(pc.Color, from))
+	}
+}
+
+func (e *Engine) updateCastlingRightsForCapture(pc *Piece, sq Square) {
+	if pc == nil {
+		return
+	}
+	switch pc.Type {
+	case King:
+		e.board.Castling = e.board.Castling.WithoutColor(pc.Color)
+	case Rook:
+		e.board.Castling = e.board.Castling.Without(castlingRightForRook(pc.Color, sq))
+	}
+}
+
+func (e *Engine) performCastleRookMove(color Color, from, to Square) {
+	rank := from.Rank()
+	var rookFromFile, rookToFile int
+	var note string
+	if to.File() > from.File() {
+		rookFromFile = 7
+		rookToFile = to.File() - 1
+		note = "Castled kingside"
+	} else {
+		rookFromFile = 0
+		rookToFile = to.File() + 1
+		note = "Castled queenside"
+	}
+	rookFrom, okFrom := shared.SquareFromCoords(rank, rookFromFile)
+	rookTo, okTo := shared.SquareFromCoords(rank, rookToFile)
+	if !okFrom || !okTo {
+		return
+	}
+	rook := e.board.pieceAt[rookFrom]
+	if rook == nil || rook.Type != Rook || rook.Color != color {
+		return
+	}
+
+	e.board.pieceAt[rookFrom] = nil
+	rook.Square = rookTo
+	e.board.pieceAt[rookTo] = rook
+
+	e.board.pieces[color][Rook] = e.board.pieces[color][Rook].Remove(rookFrom).Add(rookTo)
+	e.board.occupancy[color] = e.board.occupancy[color].Remove(rookFrom).Add(rookTo)
+	e.board.allOcc = e.board.allOcc.Remove(rookFrom).Add(rookTo)
+
+	appendAbilityNote(&e.board.lastNote, note)
 }
 
 func (e *Engine) removePiece(pc *Piece, sq Square) {
@@ -810,10 +941,22 @@ func (e *Engine) resolvePromotion(pc *Piece) {
 	}
 	if (pc.Color == White && pc.Square.Rank() == 7) || (pc.Color == Black && pc.Square.Rank() == 0) {
 		e.board.pieces[pc.Color][Pawn] = e.board.pieces[pc.Color][Pawn].Remove(pc.Square)
-		pc.Type = Queen
-		e.board.pieces[pc.Color][Queen] = e.board.pieces[pc.Color][Queen].Add(pc.Square)
-		appendAbilityNote(&e.board.lastNote, "Pawn promoted to Queen")
+		promoteTo := e.selectPromotionPiece(pc.Color)
+		pc.Type = promoteTo
+		e.board.pieces[pc.Color][promoteTo] = e.board.pieces[pc.Color][promoteTo].Add(pc.Square)
+		appendAbilityNote(&e.board.lastNote, fmt.Sprintf("Pawn promoted to %s", promoteTo.String()))
 	}
+}
+
+func (e *Engine) selectPromotionPiece(color Color) PieceType {
+	choices := e.board.PromotionChoices
+	if choices == PromotionNone {
+		choices = PromotionAll
+	}
+	if e.currentMove != nil && e.currentMove.PromotionSet && choices.Contains(e.currentMove.Promotion) {
+		return e.currentMove.Promotion
+	}
+	return choices.Default()
 }
 
 // ---------------------------
@@ -946,6 +1089,8 @@ func (e *Engine) generatePawnMoves(pc *Piece) Bitboard {
 		if target, ok := shared.SquareFromCoords(captureRank, captureFile); ok {
 			if victim := e.board.pieceAt[target]; victim != nil && victim.Color != pc.Color && e.canDirectCapture(pc, victim, from, target) {
 				moves = moves.Add(target)
+			} else if epSq, ok := e.board.EnPassant.Square(); ok && epSq == target {
+				moves = moves.Add(target)
 			}
 		}
 	}
@@ -984,7 +1129,82 @@ func (e *Engine) generateKingMoves(pc *Piece) Bitboard {
 			}
 		}
 	}
+	if dest, ok := e.castleDestination(pc, CastleKingside); ok {
+		moves = moves.Add(dest)
+	}
+	if dest, ok := e.castleDestination(pc, CastleQueenside); ok {
+		moves = moves.Add(dest)
+	}
 	return moves
+}
+
+func (e *Engine) castleDestination(pc *Piece, side CastlingSide) (Square, bool) {
+	if pc == nil || pc.Type != King {
+		return 0, false
+	}
+	if !e.board.Castling.HasSide(pc.Color, side) {
+		return 0, false
+	}
+	rank := pc.Square.Rank()
+	file := pc.Square.File()
+	enemy := pc.Color.Opposite()
+
+	var rookFile int
+	var travelFiles []int
+	var emptyFiles []int
+	var destFile int
+	switch side {
+	case CastleKingside:
+		rookFile = 7
+		travelFiles = []int{file + 1, file + 2}
+		emptyFiles = []int{file + 1, file + 2}
+		destFile = file + 2
+	case CastleQueenside:
+		rookFile = 0
+		travelFiles = []int{file - 1, file - 2}
+		emptyFiles = []int{file - 1, file - 2, file - 3}
+		destFile = file - 2
+	default:
+		return 0, false
+	}
+
+	rookSq, ok := shared.SquareFromCoords(rank, rookFile)
+	if !ok {
+		return 0, false
+	}
+	rook := e.board.pieceAt[rookSq]
+	if rook == nil || rook.Color != pc.Color || rook.Type != Rook {
+		return 0, false
+	}
+
+	for _, f := range emptyFiles {
+		sq, ok := shared.SquareFromCoords(rank, f)
+		if !ok {
+			return 0, false
+		}
+		if e.board.pieceAt[sq] != nil {
+			return 0, false
+		}
+	}
+
+	if e.isSquareAttackedBy(enemy, pc.Square) {
+		return 0, false
+	}
+	for _, f := range travelFiles {
+		sq, ok := shared.SquareFromCoords(rank, f)
+		if !ok {
+			return 0, false
+		}
+		if e.isSquareAttackedBy(enemy, sq) {
+			return 0, false
+		}
+	}
+
+	dest, ok := shared.SquareFromCoords(rank, destFile)
+	if !ok {
+		return 0, false
+	}
+	return dest, true
 }
 
 func (e *Engine) generateSlidingMoves(pc *Piece, directions []moveDelta) Bitboard {
