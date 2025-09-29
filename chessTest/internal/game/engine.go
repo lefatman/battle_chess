@@ -382,10 +382,6 @@ func (e *Engine) selectPromotionPiece(color Color) PieceType {
 	return choices.Default()
 }
 
-func (e *Engine) hasChainKill(p *Piece) bool {
-	return p != nil && p.Abilities.Contains(AbilityChainKill)
-}
-
 func (e *Engine) isSlider(pt PieceType) bool { return pt == Queen || pt == Rook || pt == Bishop }
 
 var RankOrder = map[PieceType]int{King: 5, Queen: 4, Rook: 3, Bishop: 2, Knight: 2, Pawn: 1}
@@ -675,6 +671,9 @@ func (e *Engine) resurrectionWindowActive(pc *Piece) bool {
 	}
 	if e.currentMove == nil || e.currentMove.Piece != pc {
 		return false
+	}
+	if e.currentMove.abilityCounter(AbilityResurrection, abilityFlagWindow) > 0 {
+		return true
 	}
 	return e.currentMove.abilityFlag(AbilityResurrection, abilityFlagWindow)
 }
