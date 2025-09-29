@@ -47,6 +47,8 @@ type HandlerFuncs struct {
 	OnSegmentResolvedFunc  func(game.SegmentResolutionContext) error
 	OnCaptureFunc          func(game.CaptureContext) error
 	OnTurnEndFunc          func(game.TurnEndContext) error
+	ResolveCaptureFunc     func(game.CaptureContext) (game.CaptureOutcome, error)
+	ResolveTurnEndFunc     func(game.TurnEndContext) (game.TurnEndOutcome, error)
 	PlanSpecialMoveFunc    func(*game.SpecialMoveContext) (game.SpecialMovePlan, bool, error)
 	FreeContinuationFunc   func(game.FreeContinuationContext) bool
 	OnDirectionChangeFunc  func(game.DirectionChangeContext) bool
@@ -122,6 +124,22 @@ func (hf HandlerFuncs) OnTurnEnd(ctx game.TurnEndContext) error {
 		return nil
 	}
 	return hf.OnTurnEndFunc(ctx)
+}
+
+// ResolveCapture invokes the configured capture-resolution hook if present.
+func (hf HandlerFuncs) ResolveCapture(ctx game.CaptureContext) (game.CaptureOutcome, error) {
+	if hf.ResolveCaptureFunc == nil {
+		return game.CaptureOutcome{}, nil
+	}
+	return hf.ResolveCaptureFunc(ctx)
+}
+
+// ResolveTurnEnd invokes the configured turn-end resolution hook if present.
+func (hf HandlerFuncs) ResolveTurnEnd(ctx game.TurnEndContext) (game.TurnEndOutcome, error) {
+	if hf.ResolveTurnEndFunc == nil {
+		return game.TurnEndOutcome{}, nil
+	}
+	return hf.ResolveTurnEndFunc(ctx)
 }
 
 // PlanSpecialMove invokes the configured special-move planner if present.

@@ -132,8 +132,8 @@ The entrypoint for a turn front-loads several ability- and flag-aware decisions 
 4. **Per-turn ability caches.** The `MoveState` initializer queries Chain/Quantum/Double Kill helpers and Resurrection to cache turn-wide flags and capture limits. 【F:chessTest/internal/game/moves.go†L147-L160】
 5. **Post-segment toggles.** Immediately after executing the segment, `handlePostSegment` toggles Flood Wake/Blaze Rush booleans and logs Mist Shroud pivots, emitting ability notes as it goes. 【F:chessTest/internal/game/moves.go†L171-L199】【F:chessTest/internal/game/moves.go†L682-L727】
 6. **Capture window bookkeeping.** On captures the engine raises the Resurrection window, tallies Chain Kill, and re-evaluates capture budgets via `registerCapture` and `canCaptureMore`. 【F:chessTest/internal/game/moves.go†L174-L186】【F:chessTest/internal/game/moves.go†L38-L58】
-7. **Capture aftermath abilities.** `ResolveCaptureAbility` chains DoOver, Double Kill, Scorch, and Quantum Kill routines, including penalty drains that mutate `RemainingSteps`. 【F:chessTest/internal/game/moves.go†L174-L186】【F:chessTest/internal/game/ability_resolver.go†L9-L201】
-8. **Forced turn endings.** `shouldEndTurnAfterCapture` scans attacker abilities for Poisonous Meat, Overload, and Bastion triggers, appending notes when they fire. 【F:chessTest/internal/game/moves.go†L188-L199】【F:chessTest/internal/game/moves.go†L858-L890】
+7. **Capture aftermath abilities.** `ResolveCaptureAbility` now orchestrates DoOver rewinds before dispatching capture-resolution handlers for Double Kill, Scorch, Quantum Kill, and other aftermath effects. Handlers report standardized `CaptureOutcome` data so step drains and follow-up removals compose cleanly. 【F:chessTest/internal/game/moves.go†L174-L186】【F:chessTest/internal/game/ability_resolver.go†L9-L120】【F:chessTest/internal/game/ability_capture_handlers.go†L6-L164】
+8. **Forced turn endings.** Capture handlers request forced termination through the same `CaptureOutcome`, allowing Poisonous Meat, Overload, and Bastion to append notes and stop the turn without the inline `shouldEndTurnAfterCapture` scan. 【F:chessTest/internal/game/moves.go†L174-L201】【F:chessTest/internal/game/ability_capture_handlers.go†L101-L138】
 9. **Post-move ability hints.** `resolveBlockPathFacing` and `checkPostMoveAbilities` post ability notes, while the final branch checks `RemainingSteps` alongside `hasFreeContinuation` to decide whether to end the turn. 【F:chessTest/internal/game/moves.go†L194-L209】【F:chessTest/internal/game/moves.go†L699-L769】【F:chessTest/internal/game/moves.go†L729-L818】
 
 ## `continueMove` ability checkpoints
@@ -143,8 +143,8 @@ The entrypoint for a turn front-loads several ability- and flag-aware decisions 
 3. **Resurrection window reset.** Any normal continuation immediately clears `ResurrectionWindow` before evaluating the destination, limiting Resurrection follow-ups to the very next input. 【F:chessTest/internal/game/moves.go†L249-L251】
 4. **Block Path veto.** Defender Block Path is consulted before execution; a match appends an ability note and aborts the capture attempt. Water-aligned attackers bypass the veto. 【F:chessTest/internal/game/moves.go†L257-L259】【F:chessTest/internal/game/ability_resolver.go†L203-L214】
 5. **Post-segment toggles.** After executing the segment, `handlePostSegment` updates `LastSegmentCaptured`, consumes Flood Wake and Blaze Rush freebies, and logs Mist Shroud pivots. These updates must occur before later continuation logic queries the flags. 【F:chessTest/internal/game/moves.go†L297-L300】【F:chessTest/internal/game/moves.go†L682-L727】
-6. **Capture aftermath.** Captures enqueue resurrection and Chain Kill bookkeeping via `registerCapture`, then invoke `ResolveCaptureAbility` for chained removals and penalties before `canCaptureMore` decides whether the move may continue. 【F:chessTest/internal/game/moves.go†L301-L310】
-7. **Forced turn endings.** After every segment the engine first asks `shouldEndTurnAfterCapture` (via `checkPostCaptureTermination`) and then checks for step exhaustion, only allowing the turn to continue if a Blaze Rush or Flood Wake free continuation is available. 【F:chessTest/internal/game/moves.go†L313-L318】【F:chessTest/internal/game/moves.go†L729-L739】【F:chessTest/internal/game/moves.go†L858-L890】
+6. **Capture aftermath.** Captures enqueue resurrection and Chain Kill bookkeeping via `registerCapture`, then invoke `ResolveCaptureAbility` so handlers can apply chained removals, step drains, and turn-ending requests before `canCaptureMore` decides whether the move may continue. 【F:chessTest/internal/game/moves.go†L301-L312】【F:chessTest/internal/game/ability_capture_handlers.go†L6-L164】
+7. **Forced turn endings.** After every segment `checkPostCaptureTermination` inspects `MoveState.TurnEnded`, which capture handlers toggle through `CaptureOutcome`, before the engine rechecks step exhaustion and free-continuation overrides. 【F:chessTest/internal/game/moves.go†L313-L336】【F:chessTest/internal/game/moves.go†L729-L739】
 
 ### Resurrection window flow
 
@@ -427,22 +427,22 @@ Handlers would receive a mutable `StepBudget` and adjust `Bonus` (or `GlobalPena
 
 ## Ability-sensitive work performed by `endTurn`
 - `resolvePromotion` finalizes pending pawn promotions before the turn flips, ensuring the upgraded piece type and note are applied immediately after the moving piece finishes. 【F:chessTest/internal/game/moves.go†L496-L521】【F:chessTest/internal/game/engine.go†L322-L339】
-- `applyTemporalLockSlow` checks for the Temporal Lock ability and, if present, applies a slow penalty (doubled for Fire element pieces) to the opponent and records the note before control passes. 【F:chessTest/internal/game/moves.go†L496-L521】【F:chessTest/internal/game/moves.go†L523-L537】
+- `dispatchTurnEndHandlers` collects per-ability turn-end cleanup, allowing Temporal Lock to contribute slow tokens (doubled for Fire alignment) and notes that the engine applies after standard board updates. 【F:chessTest/internal/game/moves.go†L498-L542】【F:chessTest/internal/game/ability_capture_handlers.go†L166-L220】
 - The resulting turn summary note is appended after the ability hooks run so that ability notes (promotion, Temporal Lock, etc.) appear before the generic status message in the final log. 【F:chessTest/internal/game/moves.go†L508-L520】
 
 ## Ability-specific turn ending or notifications
-- `applyTemporalLockSlow` stores a slow penalty for the opposing color when the acting piece has Temporal Lock, with Fire-aligned pieces inflicting a value of two; it also appends an ability note announcing the slow. 【F:chessTest/internal/game/moves.go†L523-L537】
-- `shouldEndTurnAfterCapture` forces the turn to end (and appends a note) when the capturing piece has any of:
-  - Poisonous Meat (always ends the turn). 【F:chessTest/internal/game/moves.go†L858-L890】
-  - Overload while aligned to Lightning. 【F:chessTest/internal/game/moves.go†L858-L890】
-  - Bastion while aligned to Earth. 【F:chessTest/internal/game/moves.go†L858-L890】
+- `dispatchTurnEndHandlers` stores a slow penalty for the opposing color when the acting piece has Temporal Lock (value two for Fire alignment) and appends the accompanying ability note after promotions and turn flips resolve. 【F:chessTest/internal/game/moves.go†L498-L542】【F:chessTest/internal/game/ability_capture_handlers.go†L166-L220】
+- Capture-resolution handlers flag forced turn endings (with notes) for:
+  - Poisonous Meat (always ends the turn). 【F:chessTest/internal/game/ability_capture_handlers.go†L124-L146】
+  - Overload while aligned to Lightning. 【F:chessTest/internal/game/ability_capture_handlers.go†L148-L174】
+  - Bastion while aligned to Earth. 【F:chessTest/internal/game/ability_capture_handlers.go†L176-L196】
 - `checkPostMoveAbilities` emits reminder notes when Side Step or Quantum Step are still available and the piece retains steps this turn. 【F:chessTest/internal/game/moves.go†L892-L902】
 
 ## Required handler hooks and ordering
 To replicate the current behavior inside an ability handler system, the engine would need the following hooks executed in this order after each segment/turn:
 1. **Post-capture enforcement (`ShouldForceTurnEnd`)** – queried immediately after processing capture abilities but before other post-move state so that forced turn endings (Poisonous Meat, Overload, Bastion) can short-circuit the remainder of the segment. 【F:chessTest/internal/game/moves.go†L181-L204】
 2. **Post-move notifications (`PostMoveNotes`)** – triggered after standard post-move state like promotions and facing adjustments so ability reminders (Side Step, Quantum Step) can append to the note log without preventing normal cleanup. 【F:chessTest/internal/game/moves.go†L204-L218】【F:chessTest/internal/game/moves.go†L892-L902】
-3. **Turn finalization (`OnTurnEnd`)** – fired once per completed turn; it must first resolve promotions, then apply Temporal Lock slow effects, and only afterwards flip the turn and update the game status to preserve the correct actor/opponent context for ability effects and notes. 【F:chessTest/internal/game/moves.go†L496-L520】
+3. **Turn finalization (`OnTurnEnd`)** – fired once per completed turn; it resolves promotions, flips the turn, updates status, and then applies handler-provided cleanup such as Temporal Lock slow effects so ability notes appear before the generic status message. 【F:chessTest/internal/game/moves.go†L498-L542】
 
 ## Capture ability resolution
 
