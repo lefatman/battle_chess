@@ -6,64 +6,25 @@ import (
 	"battle_chess_poc/internal/shared"
 )
 
-// ResolveCaptureAbility handles special ability triggers on capture.
-func (e *Engine) ResolveCaptureAbility(attacker, victim *Piece, captureSquare Square) error {
+// ResolveCaptureAbility orchestrates post-capture ability handling via
+// registered ability handlers and returns the aggregated outcome.
+func (e *Engine) ResolveCaptureAbility(attacker, victim *Piece, captureSquare Square, segmentStep int) (CaptureOutcome, error) {
 	if victim == nil {
-		return nil
+		return CaptureOutcome{}, nil
 	}
 	if err := e.maybeTriggerDoOver(victim); err != nil {
-		return err
+		return CaptureOutcome{}, err
 	}
 
-	victimRank := rankOf(victim.Type)
-	victimColor := victim.Color
-
-	extraRemoved := false
-	if attacker != nil && attacker.Abilities.Contains(AbilityDoubleKill) {
-		if target := e.trySmartExtraCapture(attacker, captureSquare, victimColor, victimRank); target != nil {
-			targetSquare := target.Square
-			if removed, err := e.attemptAbilityRemoval(attacker, target); err != nil {
-				return err
-			} else if removed {
-				appendAbilityNote(&e.board.lastNote, fmt.Sprintf("DoubleKill: removed %s %s at %s", target.Color, target.Type, targetSquare))
-				extraRemoved = true
-			}
-		}
+	if e.currentMove != nil {
+		e.currentMove.setAbilityFlag(AbilityNone, abilityFlagCaptureExtra, false)
 	}
 
-	if !extraRemoved && attacker != nil && elementOf(e, attacker) == ElementFire && attacker.Abilities.Contains(AbilityScorch) {
-		if target := e.trySmartExtraCapture(attacker, captureSquare, victimColor, victimRank); target != nil {
-			targetSquare := target.Square
-			if removed, err := e.attemptAbilityRemoval(attacker, target); err != nil {
-				return err
-			} else if removed {
-				appendAbilityNote(&e.board.lastNote, fmt.Sprintf("Fire Scorch: removed %s %s at %s", target.Color, target.Type, targetSquare))
-			}
-		}
+	outcome, err := e.dispatchCaptureResolutionHandlers(attacker, victim, captureSquare, segmentStep)
+	if err != nil {
+		return outcome, err
 	}
-
-	if attacker != nil && e.currentMove != nil && attacker.Abilities.Contains(AbilityQuantumKill) && !e.currentMove.abilityUsed(AbilityQuantumKill) {
-		e.currentMove.markAbilityUsed(AbilityQuantumKill)
-		if target := e.findQuantumKillTarget(attacker, victimColor, victimRank); target != nil {
-			targetSquare := target.Square
-			if removed, err := e.attemptAbilityRemoval(attacker, target); err != nil {
-				return err
-			} else if removed {
-				appendAbilityNote(&e.board.lastNote, fmt.Sprintf("Quantum Kill: removed %s %s at %s", target.Color, target.Type, targetSquare))
-				if echo := e.trySmartExtraCapture(attacker, targetSquare, victimColor, rankOf(target.Type)); echo != nil {
-					echoSquare := echo.Square
-					if removedEcho, err := e.attemptAbilityRemoval(attacker, echo); err != nil {
-						return err
-					} else if removedEcho {
-						appendAbilityNote(&e.board.lastNote, fmt.Sprintf("Quantum Echo: removed %s %s at %s", echo.Color, echo.Type, echoSquare))
-					}
-				}
-			}
-		}
-	}
-
-	e.applyCapturePenalties(attacker)
-	return nil
+	return outcome, nil
 }
 
 func (e *Engine) trySmartExtraCapture(attacker *Piece, captureSquare Square, victimColor Color, victimRank int) *Piece {
@@ -179,25 +140,37 @@ func (e *Engine) findQuantumKillTarget(attacker *Piece, victimColor Color, maxRa
 	return best
 }
 
-func (e *Engine) applyCapturePenalties(attacker *Piece) {
-	if e.currentMove == nil || attacker == nil {
-		return
+func (e *Engine) dispatchCaptureResolutionHandlers(attacker, victim *Piece, square Square, step int) (CaptureOutcome, error) {
+	if e.currentMove == nil || victim == nil {
+		return CaptureOutcome{}, nil
 	}
+	ctx := &e.abilityCtx.capture
+	*ctx = CaptureContext{
+		Engine:        e,
+		Move:          e.currentMove,
+		Attacker:      attacker,
+		Victim:        victim,
+		CaptureSquare: square,
+		SegmentStep:   step,
+	}
+	defer func() {
+		e.abilityCtx.capture = CaptureContext{}
+	}()
 
-	element := elementOf(e, attacker)
-	if attacker.Abilities.Contains(AbilityPoisonousMeat) && element != ElementShadow {
-		if e.currentMove.RemainingSteps > 0 {
-			e.currentMove.RemainingSteps--
-			appendAbilityNote(&e.board.lastNote, "Poisonous Meat drains 1 step")
+	outcome := CaptureOutcome{}
+	err := e.forEachActiveHandler(func(_ Ability, handler AbilityHandler) error {
+		resolver, ok := handler.(CaptureResolutionHandler)
+		if !ok {
+			return nil
 		}
-	}
-
-	if attacker.Abilities.Contains(AbilityOverload) && element == ElementLightning && attacker.Abilities.Contains(AbilityStalwart) {
-		if e.currentMove.RemainingSteps > 0 {
-			e.currentMove.RemainingSteps--
-			appendAbilityNote(&e.board.lastNote, "Overload + Stalwart costs 1 step")
+		result, err := resolver.ResolveCapture(*ctx)
+		if err != nil {
+			return err
 		}
-	}
+		outcome = outcome.Merge(result)
+		return nil
+	})
+	return outcome, err
 }
 
 func (e *Engine) captureBlockedByBlockPath(attacker *Piece, from Square, defender *Piece, to Square) (bool, string) {

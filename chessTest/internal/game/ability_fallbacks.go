@@ -32,6 +32,14 @@ func (abilityHandlerBase) OnTurnEnd(TurnEndContext) error {
 	return nil
 }
 
+func (abilityHandlerBase) ResolveCapture(CaptureContext) (CaptureOutcome, error) {
+	return CaptureOutcome{}, nil
+}
+
+func (abilityHandlerBase) ResolveTurnEnd(TurnEndContext) (TurnEndOutcome, error) {
+	return TurnEndOutcome{}, nil
+}
+
 // newBlazeRushFallbackHandler returns a default handler that mirrors the
 // existing Blaze Rush behaviour for engines without a registered handler.
 func newBlazeRushFallbackHandler() AbilityHandler {

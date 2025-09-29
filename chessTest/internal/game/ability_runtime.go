@@ -191,6 +191,23 @@ type CaptureContext struct {
 	SegmentStep   int
 }
 
+// CaptureOutcome communicates the cumulative effects that capture-resolution
+// handlers wish to apply once all ability hooks have run.
+type CaptureOutcome struct {
+	StepAdjustment int
+	ForceTurnEnd   bool
+}
+
+// Merge combines the receiver with another outcome, accumulating step deltas
+// and preserving any forced turn termination requests.
+func (o CaptureOutcome) Merge(other CaptureOutcome) CaptureOutcome {
+	o.StepAdjustment += other.StepAdjustment
+	if other.ForceTurnEnd {
+		o.ForceTurnEnd = true
+	}
+	return o
+}
+
 // FreeContinuationContext communicates the data necessary to determine whether
 // an ability can grant a free continuation after the current segment.
 type FreeContinuationContext struct {
@@ -220,6 +237,61 @@ type TurnEndContext struct {
 	Engine *Engine
 	Move   *MoveState
 	Reason TurnEndReason
+}
+
+// TurnEndOutcome captures deferred effects that should run after the engine
+// completes its standard end-of-turn bookkeeping.
+type TurnEndOutcome struct {
+	Slow  map[Color]int
+	Notes []string
+}
+
+// Merge combines the receiver with another outcome, keeping the highest slow
+// value per color and appending notes in order.
+func (o TurnEndOutcome) Merge(other TurnEndOutcome) TurnEndOutcome {
+	if len(other.Slow) > 0 {
+		if o.Slow == nil {
+			o.Slow = make(map[Color]int, len(other.Slow))
+		}
+		for color, amount := range other.Slow {
+			if amount <= 0 {
+				continue
+			}
+			if current, ok := o.Slow[color]; !ok || amount > current {
+				o.Slow[color] = amount
+			}
+		}
+	}
+	if len(other.Notes) > 0 {
+		o.Notes = append(o.Notes, other.Notes...)
+	}
+	return o
+}
+
+// AddSlow registers a slow effect for the specified color, retaining the
+// highest magnitude recorded for that color.
+func (o *TurnEndOutcome) AddSlow(color Color, amount int) {
+	if amount <= 0 {
+		return
+	}
+	if o.Slow == nil {
+		o.Slow = make(map[Color]int)
+	}
+	if current, ok := o.Slow[color]; !ok || amount > current {
+		o.Slow[color] = amount
+	}
+}
+
+// CaptureResolutionHandler allows abilities to perform post-capture cleanup
+// and request additional effects once the primary removal has been processed.
+type CaptureResolutionHandler interface {
+	ResolveCapture(ctx CaptureContext) (CaptureOutcome, error)
+}
+
+// TurnEndResolutionHandler lets abilities contribute deferred cleanup that the
+// engine applies after its normal end-of-turn state updates.
+type TurnEndResolutionHandler interface {
+	ResolveTurnEnd(ctx TurnEndContext) (TurnEndOutcome, error)
 }
 
 // TurnEndReason describes why a turn is finishing.

@@ -98,8 +98,9 @@ func (ar *AbilityRuntime) counter(key string) int {
 }
 
 const (
-	abilityFlagUsed   = "used"
-	abilityFlagWindow = "window"
+	abilityFlagUsed         = "used"
+	abilityFlagWindow       = "window"
+	abilityFlagCaptureExtra = "captureExtra"
 
 	abilityCounterFree             = "free"
 	abilityCounterCaptures         = "captures"
@@ -245,6 +246,34 @@ func (e *Engine) instantiateAbilityHandlers(pc *Piece) (map[Ability][]AbilityHan
 	if pc.Abilities.Contains(AbilityMistShroud) && len(handlers[AbilityMistShroud]) == 0 {
 		ensureHandlers()
 		handlers[AbilityMistShroud] = append(handlers[AbilityMistShroud], newMistShroudFallbackHandler())
+	}
+	if pc.Abilities.Contains(AbilityDoubleKill) && len(handlers[AbilityDoubleKill]) == 0 {
+		ensureHandlers()
+		handlers[AbilityDoubleKill] = append(handlers[AbilityDoubleKill], NewDoubleKillHandler())
+	}
+	if pc.Abilities.Contains(AbilityScorch) && len(handlers[AbilityScorch]) == 0 {
+		ensureHandlers()
+		handlers[AbilityScorch] = append(handlers[AbilityScorch], NewScorchHandler())
+	}
+	if pc.Abilities.Contains(AbilityQuantumKill) && len(handlers[AbilityQuantumKill]) == 0 {
+		ensureHandlers()
+		handlers[AbilityQuantumKill] = append(handlers[AbilityQuantumKill], NewQuantumKillHandler())
+	}
+	if pc.Abilities.Contains(AbilityPoisonousMeat) && len(handlers[AbilityPoisonousMeat]) == 0 {
+		ensureHandlers()
+		handlers[AbilityPoisonousMeat] = append(handlers[AbilityPoisonousMeat], NewPoisonousMeatHandler())
+	}
+	if pc.Abilities.Contains(AbilityOverload) && len(handlers[AbilityOverload]) == 0 {
+		ensureHandlers()
+		handlers[AbilityOverload] = append(handlers[AbilityOverload], NewOverloadHandler())
+	}
+	if pc.Abilities.Contains(AbilityBastion) && len(handlers[AbilityBastion]) == 0 {
+		ensureHandlers()
+		handlers[AbilityBastion] = append(handlers[AbilityBastion], NewBastionHandler())
+	}
+	if pc.Abilities.Contains(AbilityTemporalLock) && len(handlers[AbilityTemporalLock]) == 0 {
+		ensureHandlers()
+		handlers[AbilityTemporalLock] = append(handlers[AbilityTemporalLock], NewTemporalLockHandler())
 	}
 
 	if len(handlers) == 0 {
@@ -504,6 +533,56 @@ func (e *Engine) dispatchCaptureHandlers(attacker, victim *Piece, square Square,
 	})
 }
 
+func (e *Engine) dispatchTurnEndHandlers(reason TurnEndReason) (TurnEndOutcome, error) {
+	if e.currentMove == nil {
+		return TurnEndOutcome{}, nil
+	}
+	ctx := &e.abilityCtx.turnEnd
+	*ctx = TurnEndContext{
+		Engine: e,
+		Move:   e.currentMove,
+		Reason: reason,
+	}
+	defer func() {
+		e.abilityCtx.turnEnd = TurnEndContext{}
+	}()
+
+	outcome := TurnEndOutcome{}
+	err := e.forEachActiveHandler(func(_ Ability, handler AbilityHandler) error {
+		if err := handler.OnTurnEnd(*ctx); err != nil {
+			return err
+		}
+		resolver, ok := handler.(TurnEndResolutionHandler)
+		if !ok {
+			return nil
+		}
+		result, err := resolver.ResolveTurnEnd(*ctx)
+		if err != nil {
+			return err
+		}
+		outcome = outcome.Merge(result)
+		return nil
+	})
+	return outcome, err
+}
+
+func (e *Engine) applyTurnEndOutcome(outcome TurnEndOutcome) {
+	if len(outcome.Slow) > 0 {
+		for color, amount := range outcome.Slow {
+			if amount <= 0 {
+				continue
+			}
+			e.temporalSlow[color.Index()] = amount
+		}
+	}
+	for _, note := range outcome.Notes {
+		if note == "" {
+			continue
+		}
+		appendAbilityNote(&e.board.lastNote, note)
+	}
+}
+
 func newAbilityRuntimeMap(abilities AbilityList) map[Ability]*AbilityRuntime {
 	if len(abilities) == 0 {
 		return nil
@@ -591,10 +670,10 @@ func (e *Engine) calculateMaxCaptures(pc *Piece) int {
 }
 
 func (e *Engine) checkPostCaptureTermination(pc *Piece, target *Piece) bool {
-	if target == nil {
+	if e.currentMove == nil {
 		return false
 	}
-	return e.shouldEndTurnAfterCapture(pc)
+	return e.currentMove.TurnEnded
 }
 
 // ---------------------------
@@ -737,22 +816,29 @@ func (e *Engine) startNewMove(req MoveRequest) error {
 			e.abilityCtx.clear()
 			return err
 		}
-		if err := e.ResolveCaptureAbility(pc, segmentCtx.capture, segmentCtx.captureSquare); err != nil {
+		outcome, err := e.ResolveCaptureAbility(pc, segmentCtx.capture, segmentCtx.captureSquare, segmentStep)
+		if err != nil {
 			// If DoOver was triggered, the state is already rewound. Abort.
 			e.currentMove = nil // Clear the invalid move state
 			e.abilityCtx.clear()
 			return err
 		}
+		if delta := outcome.StepAdjustment; delta != 0 {
+			e.currentMove.RemainingSteps += delta
+			if e.currentMove.RemainingSteps < 0 {
+				e.currentMove.RemainingSteps = 0
+			}
+		}
 		if !e.currentMove.canCaptureMore() {
-			e.endTurn()
+			e.currentMove.TurnEnded = true
+			e.endTurn(TurnEndForced)
 			return nil
 		}
-	}
-
-	// Check for abilities that end the turn immediately after a capture.
-	if segmentCtx.capture != nil && e.shouldEndTurnAfterCapture(pc) {
-		e.endTurn()
-		return nil
+		if outcome.ForceTurnEnd {
+			e.currentMove.TurnEnded = true
+			e.endTurn(TurnEndForced)
+			return nil
+		}
 	}
 
 	// Resolve post-move state changes.
@@ -765,9 +851,9 @@ func (e *Engine) startNewMove(req MoveRequest) error {
 
 	// Check if the turn should end naturally.
 	if e.currentMove.TurnEnded {
-		e.endTurn()
+		e.endTurn(TurnEndForced)
 	} else if e.currentMove.RemainingSteps <= 0 && !e.hasFreeContinuation(pc) {
-		e.endTurn()
+		e.endTurn(TurnEndNatural)
 	} else {
 		appendAbilityNote(&e.board.lastNote, fmt.Sprintf("%d steps remaining", e.currentMove.RemainingSteps))
 	}
@@ -896,22 +982,35 @@ func (e *Engine) continueMove(req MoveRequest) error {
 			e.abilityCtx.clear()
 			return err
 		}
-		if err := e.ResolveCaptureAbility(pc, segmentCtx.capture, segmentCtx.captureSquare); err != nil {
+		outcome, err := e.ResolveCaptureAbility(pc, segmentCtx.capture, segmentCtx.captureSquare, segmentStep)
+		if err != nil {
 			e.currentMove = nil
 			e.abilityCtx.clear()
 			return err
 		}
+		if delta := outcome.StepAdjustment; delta != 0 {
+			e.currentMove.RemainingSteps += delta
+			if e.currentMove.RemainingSteps < 0 {
+				e.currentMove.RemainingSteps = 0
+			}
+		}
 		if !e.currentMove.canCaptureMore() {
-			e.endTurn()
+			e.currentMove.TurnEnded = true
+			e.endTurn(TurnEndForced)
+			return nil
+		}
+		if outcome.ForceTurnEnd {
+			e.currentMove.TurnEnded = true
+			e.endTurn(TurnEndForced)
 			return nil
 		}
 	}
 
 	// Check for turn-ending conditions after the action.
 	if e.checkPostCaptureTermination(pc, segmentCtx.capture) {
-		e.endTurn()
+		e.endTurn(TurnEndForced)
 	} else if e.currentMove.RemainingSteps <= 0 && !e.hasFreeContinuation(pc) {
-		e.endTurn()
+		e.endTurn(TurnEndNatural)
 	} else {
 		appendAbilityNote(&e.board.lastNote, fmt.Sprintf("%d steps remaining", e.currentMove.RemainingSteps))
 	}
@@ -1029,9 +1128,9 @@ func (e *Engine) trySideStepNudge(pc *Piece, from, to Square) (bool, error) {
 	appendAbilityNote(&e.board.lastNote, "Side Step nudge (cost 1 step)")
 
 	if e.checkPostCaptureTermination(pc, nil) {
-		e.endTurn()
+		e.endTurn(TurnEndForced)
 	} else if e.currentMove.RemainingSteps <= 0 && !e.hasFreeContinuation(pc) {
-		e.endTurn()
+		e.endTurn(TurnEndNatural)
 	} else {
 		appendAbilityNote(&e.board.lastNote, fmt.Sprintf("%d steps remaining", e.currentMove.RemainingSteps))
 	}
@@ -1139,14 +1238,14 @@ func (e *Engine) tryQuantumStep(pc *Piece, from, to Square) (bool, error) {
 	}
 
 	if e.checkPostCaptureTermination(pc, nil) {
-		e.endTurn()
+		e.endTurn(TurnEndForced)
 		return true, nil
 	}
 	if e.currentMove == nil {
 		return true, nil
 	}
 	if e.currentMove.RemainingSteps <= 0 && !e.hasFreeContinuation(pc) {
-		e.endTurn()
+		e.endTurn(TurnEndNatural)
 	} else {
 		appendAbilityNote(&e.board.lastNote, fmt.Sprintf("%d steps remaining", e.currentMove.RemainingSteps))
 	}
@@ -1241,26 +1340,39 @@ func (e *Engine) executeSpecialMovePlan(pc *Piece, from, to Square, plan Special
 			e.abilityCtx.clear()
 			return err
 		}
-		if err := e.ResolveCaptureAbility(pc, plan.Metadata.Capture, plan.Metadata.CaptureSquare); err != nil {
+		outcome, err := e.ResolveCaptureAbility(pc, plan.Metadata.Capture, plan.Metadata.CaptureSquare, segmentStep)
+		if err != nil {
 			e.currentMove = nil
 			e.abilityCtx.clear()
 			return err
 		}
+		if delta := outcome.StepAdjustment; delta != 0 {
+			e.currentMove.RemainingSteps += delta
+			if e.currentMove.RemainingSteps < 0 {
+				e.currentMove.RemainingSteps = 0
+			}
+		}
 		if !e.currentMove.canCaptureMore() {
-			e.endTurn()
+			e.currentMove.TurnEnded = true
+			e.endTurn(TurnEndForced)
+			return nil
+		}
+		if outcome.ForceTurnEnd {
+			e.currentMove.TurnEnded = true
+			e.endTurn(TurnEndForced)
 			return nil
 		}
 	}
 
 	if e.checkPostCaptureTermination(pc, plan.Metadata.Capture) {
-		e.endTurn()
+		e.endTurn(TurnEndForced)
 		return nil
 	}
 	if e.currentMove == nil {
 		return nil
 	}
 	if e.currentMove.RemainingSteps <= 0 && !e.hasFreeContinuation(pc) {
-		e.endTurn()
+		e.endTurn(TurnEndNatural)
 	} else {
 		appendAbilityNote(&e.board.lastNote, fmt.Sprintf("%d steps remaining", e.currentMove.RemainingSteps))
 	}
@@ -1341,17 +1453,22 @@ func isAdjacentSquare(from, to Square) bool {
 }
 
 // endTurn finalizes the move, performs cleanup, and passes control to the other player.
-func (e *Engine) endTurn() {
+func (e *Engine) endTurn(reason TurnEndReason) {
 	if e.currentMove == nil {
 		// This can happen if a move was aborted (e.g., DoOver).
 		return
 	}
 
 	pc := e.currentMove.Piece
+	outcome, handlerErr := e.dispatchTurnEndHandlers(reason)
 	e.resolvePromotion(pc)
-	e.applyTemporalLockSlow(pc)
 	e.flipTurn()
 	e.updateGameStatus()
+
+	e.applyTurnEndOutcome(outcome)
+	if handlerErr != nil {
+		appendAbilityNote(&e.board.lastNote, fmt.Sprintf("Turn end handler error: %v", handlerErr))
+	}
 
 	var note string
 	switch {
@@ -1372,20 +1489,6 @@ func (e *Engine) endTurn() {
 	e.currentMove = nil
 	e.abilityCtx.clear()
 	e.resetAbilityHandlers()
-}
-
-func (e *Engine) applyTemporalLockSlow(pc *Piece) {
-	if pc == nil || !pc.Abilities.Contains(AbilityTemporalLock) {
-		return
-	}
-	slow := 1
-	if elementOf(e, pc) == ElementFire {
-		slow = 2
-	}
-
-	opponent := pc.Color.Opposite()
-	e.temporalSlow[opponent.Index()] = slow
-	appendAbilityNote(&e.board.lastNote, fmt.Sprintf("Temporal Lock slows %s by %d", opponent, slow))
 }
 
 // ---------------------------
@@ -1745,28 +1848,6 @@ func maxInt(a, b int) int {
 // ---------------------------
 // Turn State Conditionals
 // ---------------------------
-
-// shouldEndTurnAfterCapture checks for abilities that force a turn to end after a capture.
-func (e *Engine) shouldEndTurnAfterCapture(pc *Piece) bool {
-	element := elementOf(e, pc)
-
-	// Poisonous Meat ends the turn immediately.
-	if pc.Abilities.Contains(AbilityPoisonousMeat) {
-		appendAbilityNote(&e.board.lastNote, "Poisonous Meat ends the turn")
-		return true
-	}
-	// Overload (Lightning) ends the move after any capture.
-	if pc.Abilities.Contains(AbilityOverload) && element == ElementLightning {
-		appendAbilityNote(&e.board.lastNote, "Overload ends the turn")
-		return true
-	}
-	// Bastion (Earth) ends the move after a capture ("stop after hit").
-	if pc.Abilities.Contains(AbilityBastion) && element == ElementEarth {
-		appendAbilityNote(&e.board.lastNote, "Bastion ends the turn")
-		return true
-	}
-	return false
-}
 
 // checkPostMoveAbilities checks for abilities that can be activated after a move segment.
 func (e *Engine) checkPostMoveAbilities(pc *Piece) {
