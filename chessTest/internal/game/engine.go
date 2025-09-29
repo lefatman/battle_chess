@@ -669,6 +669,23 @@ func (e *Engine) resurrectionWindowActive(pc *Piece) bool {
 	if !pc.Abilities.Contains(AbilityResurrection) {
 		return false
 	}
+	if handlers := e.handlersForAbility(AbilityResurrection); len(handlers) > 0 {
+		ctx := ResurrectionContext{Engine: e, Move: e.currentMove, Piece: pc}
+		handled := false
+		for _, handler := range handlers {
+			provider, ok := handler.(ResurrectionWindowHandler)
+			if !ok {
+				continue
+			}
+			handled = true
+			if provider.ResurrectionWindowActive(ctx) {
+				return true
+			}
+		}
+		if handled {
+			return false
+		}
+	}
 	if e.currentMove == nil || e.currentMove.Piece != pc {
 		return false
 	}
@@ -679,6 +696,22 @@ func (e *Engine) resurrectionWindowActive(pc *Piece) bool {
 }
 
 func (e *Engine) addResurrectionCaptureWindow(pc *Piece, moves Bitboard) Bitboard {
+	if handlers := e.handlersForAbility(AbilityResurrection); len(handlers) > 0 {
+		ctx := ResurrectionContext{Engine: e, Move: e.currentMove, Piece: pc}
+		handled := false
+		for _, handler := range handlers {
+			contributor, ok := handler.(ResurrectionCaptureWindowHandler)
+			if !ok {
+				continue
+			}
+			handled = true
+			moves = contributor.AddResurrectionCaptureWindow(ctx, moves)
+		}
+		if handled {
+			return moves
+		}
+	}
+
 	from := pc.Square
 	rank := from.Rank()
 	file := from.File()
