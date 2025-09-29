@@ -4,8 +4,6 @@ package game
 import (
 	"errors"
 	"fmt"
-
-	"battle_chess_poc/internal/shared"
 )
 
 func (e *Engine) startNewMove(req MoveRequest) error {
@@ -37,7 +35,7 @@ func (e *Engine) startNewMove(req MoveRequest) error {
 			} else {
 				captureRank++
 			}
-			captureSq, ok := shared.SquareFromCoords(captureRank, to.File())
+			captureSq, ok := SquareFromCoords(captureRank, to.File())
 			if !ok {
 				return errors.New("invalid en passant capture")
 			}
@@ -217,7 +215,7 @@ func (e *Engine) continueMove(req MoveRequest) error {
 			} else {
 				captureRank++
 			}
-			captureSq, ok := shared.SquareFromCoords(captureRank, to.File())
+			captureSq, ok := SquareFromCoords(captureRank, to.File())
 			if !ok {
 				return errors.New("invalid en passant capture")
 			}

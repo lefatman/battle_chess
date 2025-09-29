@@ -1,3 +1,4 @@
+// path: chessTest/internal/game/abilities/handler.go
 package abilities
 
 import (
@@ -6,7 +7,6 @@ import (
 	"sync"
 
 	"battle_chess_poc/internal/game"
-	"battle_chess_poc/internal/shared"
 )
 
 // HandlerFactory constructs a new AbilityHandler instance.
@@ -172,7 +172,7 @@ func (hf HandlerFuncs) OnDirectionChange(ctx game.DirectionChangeContext) bool {
 
 var (
 	registryMu sync.RWMutex
-	registry   map[shared.Ability]HandlerFactory
+	registry   map[game.Ability]HandlerFactory
 
 	// ErrDuplicateRegistration indicates an ability already has a handler factory.
 	ErrDuplicateRegistration = errors.New("abilities: handler already registered")
@@ -188,8 +188,8 @@ var (
 
 // Register associates an ability with a handler factory. The function is safe
 // for concurrent use.
-func Register(id shared.Ability, ctor HandlerFactory) error {
-	if id == shared.AbilityNone {
+func Register(id game.Ability, ctor HandlerFactory) error {
+	if id == game.AbilityNone {
 		return ErrInvalidAbility
 	}
 	if ctor == nil {
@@ -199,7 +199,7 @@ func Register(id shared.Ability, ctor HandlerFactory) error {
 	registryMu.Lock()
 	defer registryMu.Unlock()
 	if registry == nil {
-		registry = make(map[shared.Ability]HandlerFactory)
+		registry = make(map[game.Ability]HandlerFactory)
 	}
 	if _, exists := registry[id]; exists {
 		return fmt.Errorf("%w: %s", ErrDuplicateRegistration, id.String())
@@ -210,7 +210,7 @@ func Register(id shared.Ability, ctor HandlerFactory) error {
 
 // New creates a handler instance for the requested ability using the registered
 // factory.
-func New(id shared.Ability) (game.AbilityHandler, error) {
+func New(id game.Ability) (game.AbilityHandler, error) {
 	registryMu.RLock()
 	ctor := registry[id]
 	registryMu.RUnlock()
@@ -228,11 +228,11 @@ func New(id shared.Ability) (game.AbilityHandler, error) {
 
 // registeredAbilities returns a copy of the registered ability identifiers. It
 // is primarily intended for debugging and tests.
-func registeredAbilities() []shared.Ability {
+func registeredAbilities() []game.Ability {
 	registryMu.RLock()
 	defer registryMu.RUnlock()
 
-	out := make([]shared.Ability, 0, len(registry))
+	out := make([]game.Ability, 0, len(registry))
 	for id := range registry {
 		out = append(out, id)
 	}
@@ -241,7 +241,7 @@ func registeredAbilities() []shared.Ability {
 
 func init() {
 	game.RegisterAbilityFactory(func(id game.Ability) (game.AbilityHandler, error) {
-		handler, err := New(shared.Ability(id))
+		handler, err := New(id)
 		if err != nil {
 			if errors.Is(err, ErrUnknownAbility) {
 				return nil, game.ErrAbilityNotRegistered

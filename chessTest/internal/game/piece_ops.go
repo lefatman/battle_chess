@@ -1,10 +1,7 @@
+// path: chessTest/internal/game/piece_ops.go
 package game
 
-import (
-	"errors"
-
-	"battle_chess_poc/internal/shared"
-)
+import "errors"
 
 func appendAbilityNote(dst *string, note string) {
 	if *dst == "" || *dst == "New game" || *dst == "Configuration locked - game started" {
@@ -66,7 +63,7 @@ func (e *Engine) executeMoveSegment(from, to Square, ctx moveSegmentContext) {
 		diff := to.Rank() - from.Rank()
 		if diff == 2 || diff == -2 {
 			midRank := from.Rank() + diff/2
-			if sq, ok := shared.SquareFromCoords(midRank, from.File()); ok {
+			if sq, ok := SquareFromCoords(midRank, from.File()); ok {
 				e.board.EnPassant = NewEnPassantTarget(sq)
 			}
 		}
@@ -158,8 +155,8 @@ func (e *Engine) performCastleRookMove(color Color, from, to Square) {
 		rookToFile = to.File() + 1
 		note = "Castled queenside"
 	}
-	rookFrom, okFrom := shared.SquareFromCoords(rank, rookFromFile)
-	rookTo, okTo := shared.SquareFromCoords(rank, rookToFile)
+	rookFrom, okFrom := SquareFromCoords(rank, rookFromFile)
+	rookTo, okTo := SquareFromCoords(rank, rookToFile)
 	if !okFrom || !okTo {
 		return
 	}
@@ -197,7 +194,7 @@ func (e *Engine) removePiece(pc *Piece, sq Square) {
 }
 
 func (e *Engine) isPathClear(from, to Square) bool {
-	line := shared.Line(from, to)
+	line := Line(from, to)
 	for _, sq := range line {
 		if e.board.pieceAt[sq] != nil {
 			return false

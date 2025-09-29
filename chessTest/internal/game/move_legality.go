@@ -1,10 +1,8 @@
 // path: chessTest/internal/game/move_legality.go
 package game
 
-import "battle_chess_poc/internal/shared"
-
 func (e *Engine) pathIsPassable(pc *Piece, from, to Square) bool {
-	line := shared.Line(from, to)
+	line := Line(from, to)
 	if len(line) == 0 {
 		return true
 	}

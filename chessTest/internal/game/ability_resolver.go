@@ -1,10 +1,7 @@
+// path: chessTest/internal/game/ability_resolver.go
 package game
 
-import (
-	"fmt"
-
-	"battle_chess_poc/internal/shared"
-)
+import "fmt"
 
 // ResolveCaptureAbility orchestrates post-capture ability handling via
 // registered ability handlers and returns the aggregated outcome.
@@ -37,7 +34,7 @@ func (e *Engine) trySmartExtraCapture(attacker *Piece, captureSquare Square, vic
 			continue
 		}
 		nsq := Square(nsqInt)
-		if !shared.SameFileNeighborhood(captureSquare, nsq, d) {
+		if !SameFileNeighborhood(captureSquare, nsq, d) {
 			continue
 		}
 		p := e.board.pieceAt[nsq]
@@ -180,7 +177,7 @@ func (e *Engine) captureBlockedByBlockPath(attacker *Piece, from Square, defende
 	if attacker != nil && elementOf(e, attacker) == ElementWater {
 		return false, ""
 	}
-	dir := shared.DirectionOf(from, to)
+	dir := DirectionOf(from, to)
 	if dir == defender.BlockDir {
 		return true, fmt.Sprintf("Capture blocked by BlockPath (%s)", defender.BlockDir)
 	}

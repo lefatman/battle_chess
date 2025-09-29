@@ -1,11 +1,10 @@
+// path: chessTest/internal/game/engine.go
 // Package game implements the core battle chess engine state and API.
 package game
 
 import (
 	"errors"
 	"fmt"
-
-	"battle_chess_poc/internal/shared"
 )
 
 // Engine encapsulates the optimized chess engine with ability metadata.
@@ -483,11 +482,11 @@ func (e *Engine) generatePawnMoves(pc *Piece) Bitboard {
 	}
 
 	forwardRank := rank + dir
-	if target, ok := shared.SquareFromCoords(forwardRank, file); ok && e.board.pieceAt[target] == nil {
+	if target, ok := SquareFromCoords(forwardRank, file); ok && e.board.pieceAt[target] == nil {
 		moves = moves.Add(target)
 		if rank == startRank {
 			doubleRank := rank + 2*dir
-			if doubleSq, ok := shared.SquareFromCoords(doubleRank, file); ok && e.board.pieceAt[doubleSq] == nil {
+			if doubleSq, ok := SquareFromCoords(doubleRank, file); ok && e.board.pieceAt[doubleSq] == nil {
 				moves = moves.Add(doubleSq)
 			}
 		}
@@ -496,7 +495,7 @@ func (e *Engine) generatePawnMoves(pc *Piece) Bitboard {
 	for _, df := range []int{-1, 1} {
 		captureRank := rank + dir
 		captureFile := file + df
-		if target, ok := shared.SquareFromCoords(captureRank, captureFile); ok {
+		if target, ok := SquareFromCoords(captureRank, captureFile); ok {
 			if victim := e.board.pieceAt[target]; victim != nil && victim.Color != pc.Color && e.canDirectCapture(pc, victim, from, target) {
 				moves = moves.Add(target)
 			} else if epSq, ok := e.board.EnPassant.Square(); ok && epSq == target {
@@ -515,7 +514,7 @@ func (e *Engine) generateKnightMoves(pc *Piece) Bitboard {
 	from := pc.Square
 
 	for _, delta := range knightOffsets {
-		if target, ok := shared.SquareFromCoords(rank+delta.dr, file+delta.df); ok {
+		if target, ok := SquareFromCoords(rank+delta.dr, file+delta.df); ok {
 			occupant := e.board.pieceAt[target]
 			if occupant == nil || (occupant.Color != pc.Color && e.canDirectCapture(pc, occupant, from, target)) {
 				moves = moves.Add(target)
@@ -532,7 +531,7 @@ func (e *Engine) generateKingMoves(pc *Piece) Bitboard {
 	from := pc.Square
 
 	for _, delta := range kingOffsets {
-		if target, ok := shared.SquareFromCoords(rank+delta.dr, file+delta.df); ok {
+		if target, ok := SquareFromCoords(rank+delta.dr, file+delta.df); ok {
 			occupant := e.board.pieceAt[target]
 			if occupant == nil || (occupant.Color != pc.Color && e.canDirectCapture(pc, occupant, from, target)) {
 				moves = moves.Add(target)
@@ -578,7 +577,7 @@ func (e *Engine) castleDestination(pc *Piece, side CastlingSide) (Square, bool) 
 		return 0, false
 	}
 
-	rookSq, ok := shared.SquareFromCoords(rank, rookFile)
+	rookSq, ok := SquareFromCoords(rank, rookFile)
 	if !ok {
 		return 0, false
 	}
@@ -588,7 +587,7 @@ func (e *Engine) castleDestination(pc *Piece, side CastlingSide) (Square, bool) 
 	}
 
 	for _, f := range emptyFiles {
-		sq, ok := shared.SquareFromCoords(rank, f)
+		sq, ok := SquareFromCoords(rank, f)
 		if !ok {
 			return 0, false
 		}
@@ -601,7 +600,7 @@ func (e *Engine) castleDestination(pc *Piece, side CastlingSide) (Square, bool) 
 		return 0, false
 	}
 	for _, f := range travelFiles {
-		sq, ok := shared.SquareFromCoords(rank, f)
+		sq, ok := SquareFromCoords(rank, f)
 		if !ok {
 			return 0, false
 		}
@@ -610,7 +609,7 @@ func (e *Engine) castleDestination(pc *Piece, side CastlingSide) (Square, bool) 
 		}
 	}
 
-	dest, ok := shared.SquareFromCoords(rank, destFile)
+	dest, ok := SquareFromCoords(rank, destFile)
 	if !ok {
 		return 0, false
 	}
@@ -627,7 +626,7 @@ func (e *Engine) generateSlidingMoves(pc *Piece, directions []moveDelta) Bitboar
 		rank := startRank + delta.dr
 		file := startFile + delta.df
 		for {
-			if target, ok := shared.SquareFromCoords(rank, file); ok {
+			if target, ok := SquareFromCoords(rank, file); ok {
 				occupant := e.board.pieceAt[target]
 				if occupant == nil {
 					moves = moves.Add(target)
@@ -652,7 +651,7 @@ func (e *Engine) addScatterShotCaptures(pc *Piece, moves Bitboard) Bitboard {
 	rank := from.Rank()
 	file := from.File()
 	for _, df := range []int{-1, 1} {
-		if target, ok := shared.SquareFromCoords(rank, file+df); ok {
+		if target, ok := SquareFromCoords(rank, file+df); ok {
 			occupant := e.board.pieceAt[target]
 			if occupant != nil && occupant.Color != pc.Color && e.canDirectCapture(pc, occupant, from, target) {
 				moves = moves.Add(target)
@@ -716,7 +715,7 @@ func (e *Engine) addResurrectionCaptureWindow(pc *Piece, moves Bitboard) Bitboar
 	rank := from.Rank()
 	file := from.File()
 	for _, dr := range []int{-1, 1} {
-		if target, ok := shared.SquareFromCoords(rank+dr, file); ok {
+		if target, ok := SquareFromCoords(rank+dr, file); ok {
 			occupant := e.board.pieceAt[target]
 			if occupant != nil && occupant.Color != pc.Color && e.canDirectCapture(pc, occupant, from, target) {
 				moves = moves.Add(target)
