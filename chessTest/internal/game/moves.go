@@ -549,9 +549,6 @@ func (e *Engine) calculateStepBudget(pc *Piece) int {
 			bonus-- // Radiant Vision dampens Umbral Step by 1
 		}
 	}
-	if pc.Abilities.Contains(AbilityBelligerent) {
-		bonus++ // Belligerent grants +1 step
-	}
 	if pc.Abilities.Contains(AbilitySchrodingersLaugh) {
 		bonus += 2 // Schrodinger's Laugh grants +2 steps
 		if pc.Abilities.Contains(AbilitySideStep) {
@@ -925,6 +922,9 @@ func (e *Engine) canDirectCapture(attacker, defender *Piece, from, to Square) bo
 		return false
 	}
 	if defender.Abilities.Contains(AbilityStalwart) && rankOf(attacker.Type) < rankOf(defender.Type) {
+		return false
+	}
+	if defender.Abilities.Contains(AbilityBelligerent) && rankOf(attacker.Type) > rankOf(defender.Type) {
 		return false
 	}
 	if isScatterShotCapture(attacker, from, to) && defender.Abilities.Contains(AbilityIndomitable) {

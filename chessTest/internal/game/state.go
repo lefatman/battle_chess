@@ -507,6 +507,9 @@ func (e *Engine) canAbilityRemove(attacker, target *Piece) bool {
 	if target.Abilities.Contains(AbilityStalwart) && attacker != nil && rankOf(attacker.Type) < rankOf(target.Type) {
 		return false
 	}
+	if target.Abilities.Contains(AbilityBelligerent) && attacker != nil && rankOf(attacker.Type) > rankOf(target.Type) {
+		return false
+	}
 	return true
 }
 
