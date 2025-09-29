@@ -176,6 +176,123 @@ func TestFloodWakeDisablesPhasing(t *testing.T) {
 	}
 }
 
+func TestMoveRejectedIfSelfCheck(t *testing.T) {
+	eng := NewEngine()
+	if err := eng.SetSideConfig(White, AbilityList{AbilityDoOver}, ElementLight); err != nil {
+		t.Fatalf("configure white: %v", err)
+	}
+	if err := eng.SetSideConfig(Black, AbilityList{AbilityDoOver}, ElementShadow); err != nil {
+		t.Fatalf("configure black: %v", err)
+	}
+
+	clearBoard(eng)
+
+	whiteKing := mustSquare(t, "e1")
+	whiteRook := mustSquare(t, "e2")
+	whiteRookTarget := mustSquare(t, "f2")
+	blackRook := mustSquare(t, "e8")
+
+	eng.placePiece(White, King, whiteKing)
+	eng.placePiece(White, Rook, whiteRook)
+	eng.placePiece(Black, Rook, blackRook)
+	eng.board.turn = White
+
+	if err := eng.Move(MoveRequest{From: whiteRook, To: whiteRookTarget, Dir: DirNone}); err == nil {
+		t.Fatalf("expected move to be rejected when exposing king to check")
+	}
+
+	if pc := eng.board.pieceAt[whiteRook]; pc == nil || pc.Type != Rook {
+		t.Fatalf("expected rook to remain on e2 after illegal move")
+	}
+	if eng.board.turn != White {
+		t.Fatalf("expected turn to remain with white after illegal move")
+	}
+}
+
+func TestCheckmateDetection(t *testing.T) {
+	eng := NewEngine()
+	if err := eng.SetSideConfig(White, AbilityList{AbilityDoOver}, ElementLight); err != nil {
+		t.Fatalf("configure white: %v", err)
+	}
+	if err := eng.SetSideConfig(Black, AbilityList{AbilityDoOver}, ElementShadow); err != nil {
+		t.Fatalf("configure black: %v", err)
+	}
+
+	clearBoard(eng)
+
+	whiteKing := mustSquare(t, "g6")
+	whiteQueenStart := mustSquare(t, "e7")
+	whiteQueenMate := mustSquare(t, "g7")
+	blackKing := mustSquare(t, "h8")
+
+	eng.placePiece(White, King, whiteKing)
+	eng.placePiece(White, Queen, whiteQueenStart)
+	eng.placePiece(Black, King, blackKing)
+	eng.board.turn = White
+
+	if err := eng.Move(MoveRequest{From: whiteQueenStart, To: whiteQueenMate, Dir: DirNone}); err != nil {
+		t.Fatalf("mate move failed: %v", err)
+	}
+
+	if !eng.board.GameOver {
+		t.Fatalf("expected game over after checkmate")
+	}
+	if eng.board.Status != "checkmate" {
+		t.Fatalf("expected status 'checkmate', got %q", eng.board.Status)
+	}
+	if !eng.board.InCheck {
+		t.Fatalf("expected side to move to be flagged in check")
+	}
+	if !eng.board.HasWinner || eng.board.Winner != White {
+		t.Fatalf("expected white to be recorded as winner")
+	}
+	if !strings.Contains(strings.ToLower(eng.board.lastNote), "checkmate") {
+		t.Fatalf("expected last note to mention checkmate, got %q", eng.board.lastNote)
+	}
+}
+
+func TestStalemateDetection(t *testing.T) {
+	eng := NewEngine()
+	if err := eng.SetSideConfig(White, AbilityList{AbilityDoOver}, ElementLight); err != nil {
+		t.Fatalf("configure white: %v", err)
+	}
+	if err := eng.SetSideConfig(Black, AbilityList{AbilityDoOver}, ElementShadow); err != nil {
+		t.Fatalf("configure black: %v", err)
+	}
+
+	clearBoard(eng)
+
+	whiteKing := mustSquare(t, "c6")
+	whiteQueenStart := mustSquare(t, "c8")
+	whiteQueenFinal := mustSquare(t, "c7")
+	blackKing := mustSquare(t, "a8")
+
+	eng.placePiece(White, King, whiteKing)
+	eng.placePiece(White, Queen, whiteQueenStart)
+	eng.placePiece(Black, King, blackKing)
+	eng.board.turn = White
+
+	if err := eng.Move(MoveRequest{From: whiteQueenStart, To: whiteQueenFinal, Dir: DirNone}); err != nil {
+		t.Fatalf("stalemate move failed: %v", err)
+	}
+
+	if !eng.board.GameOver {
+		t.Fatalf("expected game over after stalemate setup")
+	}
+	if eng.board.Status != "stalemate" {
+		t.Fatalf("expected status 'stalemate', got %q", eng.board.Status)
+	}
+	if eng.board.InCheck {
+		t.Fatalf("expected side to move not to be in check for stalemate")
+	}
+	if eng.board.HasWinner {
+		t.Fatalf("expected no winner to be recorded for stalemate")
+	}
+	if !strings.Contains(strings.ToLower(eng.board.lastNote), "stalemate") {
+		t.Fatalf("expected last note to mention stalemate, got %q", eng.board.lastNote)
+	}
+}
+
 func TestFloodWakePushAfterSlide(t *testing.T) {
 	eng := NewEngine()
 	if err := eng.SetSideConfig(White, AbilityList{AbilityDoOver, AbilityFloodWake}, ElementWater); err != nil {
