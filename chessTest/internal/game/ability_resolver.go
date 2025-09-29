@@ -42,8 +42,8 @@ func (e *Engine) ResolveCaptureAbility(attacker, victim *Piece, captureSquare Sq
 		}
 	}
 
-	if attacker != nil && e.currentMove != nil && e.currentMove.HasQuantumKill && !e.currentMove.QuantumKillUsed {
-		e.currentMove.QuantumKillUsed = true
+	if attacker != nil && e.currentMove != nil && attacker.Abilities.Contains(AbilityQuantumKill) && !e.currentMove.abilityUsed(AbilityQuantumKill) {
+		e.currentMove.markAbilityUsed(AbilityQuantumKill)
 		if target := e.findQuantumKillTarget(attacker, victimColor, victimRank); target != nil {
 			targetSquare := target.Square
 			if removed, err := e.attemptAbilityRemoval(attacker, target); err != nil {

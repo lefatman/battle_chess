@@ -386,14 +386,6 @@ func (e *Engine) hasChainKill(p *Piece) bool {
 	return p != nil && p.Abilities.Contains(AbilityChainKill)
 }
 
-func (e *Engine) hasQuantumKill(p *Piece) bool {
-	return p != nil && p.Abilities.Contains(AbilityQuantumKill)
-}
-
-func (e *Engine) hasDoubleKill(p *Piece) bool {
-	return p != nil && p.Abilities.Contains(AbilityDoubleKill)
-}
-
 func (e *Engine) isSlider(pt PieceType) bool { return pt == Queen || pt == Rook || pt == Bishop }
 
 var RankOrder = map[PieceType]int{King: 5, Queen: 4, Rook: 3, Bishop: 2, Knight: 2, Pawn: 1}
@@ -684,7 +676,7 @@ func (e *Engine) resurrectionWindowActive(pc *Piece) bool {
 	if e.currentMove == nil || e.currentMove.Piece != pc {
 		return false
 	}
-	return e.currentMove.ResurrectionWindow
+	return e.currentMove.abilityFlag(AbilityResurrection, abilityFlagWindow)
 }
 
 func (e *Engine) addResurrectionCaptureWindow(pc *Piece, moves Bitboard) Bitboard {

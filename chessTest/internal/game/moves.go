@@ -10,29 +10,187 @@ import (
 // MoveState tracks the current move in progress with a step budget system.
 // It holds all the temporary state for a piece's actions within a single turn.
 type MoveState struct {
-	Piece                 *Piece
-	RemainingSteps        int
-	UsedPhasing           bool
-	Path                  []Square
-	Captures              []*Piece
-	HasChainKill          bool
-	HasQuantumKill        bool
-	HasDoubleKill         bool
-	HasResurrection       bool
-	ResurrectionWindow    bool
-	TurnEnded             bool
-	FreeTurnsUsed         int  // For Mist Shroud
-	BlazeRushUsed         bool // Once per turn
-	QuantumStepUsed       bool // Once per turn
-	SideStepUsed          bool // Once per turn
-	TemporalLockUsed      bool // Once per turn
-	ChainKillCaptureCount int  // Track Chain Kill captures (max 2 additional)
-	FloodWakePushUsed     bool // Track Flood Wake push usage
-	MaxCaptures           int
-	LastSegmentCaptured   bool
-	QuantumKillUsed       bool
-	Promotion             PieceType
-	PromotionSet          bool
+	Piece               *Piece
+	RemainingSteps      int
+	Path                []Square
+	Captures            []*Piece
+	AbilityData         map[Ability]*AbilityRuntime
+	MaxCaptures         int
+	TurnEnded           bool
+	LastSegmentCaptured bool
+	Promotion           PieceType
+	PromotionSet        bool
+}
+
+// AbilityRuntime captures mutable per-ability state for the duration of a move.
+// Handlers can store arbitrary flags and counters keyed by semantic labels.
+type AbilityRuntime struct {
+	Flags    map[string]bool
+	Counters map[string]int
+}
+
+// Clone produces a deep copy of the runtime data so history rewinds can
+// restore the per-ability state safely.
+func (ar *AbilityRuntime) Clone() *AbilityRuntime {
+	if ar == nil {
+		return nil
+	}
+	clone := &AbilityRuntime{}
+	if len(ar.Flags) > 0 {
+		clone.Flags = make(map[string]bool, len(ar.Flags))
+		for k, v := range ar.Flags {
+			clone.Flags[k] = v
+		}
+	}
+	if len(ar.Counters) > 0 {
+		clone.Counters = make(map[string]int, len(ar.Counters))
+		for k, v := range ar.Counters {
+			clone.Counters[k] = v
+		}
+	}
+	return clone
+}
+
+func (ar *AbilityRuntime) setFlag(key string, value bool) {
+	if ar == nil {
+		return
+	}
+	if ar.Flags == nil {
+		ar.Flags = make(map[string]bool)
+	}
+	ar.Flags[key] = value
+}
+
+func (ar *AbilityRuntime) flag(key string) bool {
+	if ar == nil || len(ar.Flags) == 0 {
+		return false
+	}
+	return ar.Flags[key]
+}
+
+func (ar *AbilityRuntime) setCounter(key string, value int) {
+	if ar == nil {
+		return
+	}
+	if ar.Counters == nil {
+		ar.Counters = make(map[string]int)
+	}
+	ar.Counters[key] = value
+}
+
+func (ar *AbilityRuntime) addCounter(key string, delta int) int {
+	if ar == nil {
+		return 0
+	}
+	if ar.Counters == nil {
+		ar.Counters = make(map[string]int)
+	}
+	ar.Counters[key] += delta
+	return ar.Counters[key]
+}
+
+func (ar *AbilityRuntime) counter(key string) int {
+	if ar == nil || len(ar.Counters) == 0 {
+		return 0
+	}
+	return ar.Counters[key]
+}
+
+const (
+	abilityFlagUsed    = "used"
+	abilityFlagWindow  = "window"
+	abilityCounterFree = "free"
+)
+
+func (ms *MoveState) ensureAbilityData() {
+	if ms.AbilityData == nil {
+		ms.AbilityData = make(map[Ability]*AbilityRuntime)
+	}
+}
+
+func (ms *MoveState) abilityRuntime(id Ability) *AbilityRuntime {
+	if ms == nil {
+		return nil
+	}
+	ms.ensureAbilityData()
+	rt, ok := ms.AbilityData[id]
+	if !ok {
+		rt = &AbilityRuntime{}
+		ms.AbilityData[id] = rt
+	}
+	return rt
+}
+
+func (ms *MoveState) abilityFlag(id Ability, key string) bool {
+	if ms == nil || len(ms.AbilityData) == 0 {
+		return false
+	}
+	if rt, ok := ms.AbilityData[id]; ok {
+		return rt.flag(key)
+	}
+	return false
+}
+
+func (ms *MoveState) setAbilityFlag(id Ability, key string, value bool) {
+	if ms == nil {
+		return
+	}
+	ms.abilityRuntime(id).setFlag(key, value)
+}
+
+func (ms *MoveState) abilityUsed(id Ability) bool {
+	return ms.abilityFlag(id, abilityFlagUsed)
+}
+
+func (ms *MoveState) markAbilityUsed(id Ability) {
+	ms.setAbilityFlag(id, abilityFlagUsed, true)
+}
+
+func (ms *MoveState) clearAbilityUsed(id Ability) {
+	ms.setAbilityFlag(id, abilityFlagUsed, false)
+}
+
+func (ms *MoveState) abilityCounter(id Ability, key string) int {
+	if ms == nil || len(ms.AbilityData) == 0 {
+		return 0
+	}
+	if rt, ok := ms.AbilityData[id]; ok {
+		return rt.counter(key)
+	}
+	return 0
+}
+
+func (ms *MoveState) setAbilityCounter(id Ability, key string, value int) {
+	if ms == nil {
+		return
+	}
+	ms.abilityRuntime(id).setCounter(key, value)
+}
+
+func (ms *MoveState) addAbilityCounter(id Ability, key string, delta int) int {
+	if ms == nil {
+		return 0
+	}
+	return ms.abilityRuntime(id).addCounter(key, delta)
+}
+
+func newAbilityRuntimeMap(abilities AbilityList) map[Ability]*AbilityRuntime {
+	if len(abilities) == 0 {
+		return nil
+	}
+	runtimes := make(map[Ability]*AbilityRuntime)
+	for _, ability := range abilities {
+		if ability == AbilityNone {
+			continue
+		}
+		if _, exists := runtimes[ability]; !exists {
+			runtimes[ability] = &AbilityRuntime{}
+		}
+	}
+	if len(runtimes) == 0 {
+		return nil
+	}
+	return runtimes
 }
 
 func (ms *MoveState) canCaptureMore() bool {
@@ -50,11 +208,8 @@ func (ms *MoveState) registerCapture(captured *Piece) {
 		return
 	}
 	ms.Captures = append(ms.Captures, captured)
-	if ms.HasResurrection {
-		ms.ResurrectionWindow = true
-	}
-	if ms.HasChainKill && captured.Color != ms.Piece.Color {
-		ms.ChainKillCaptureCount++
+	if ms.Piece != nil && ms.Piece.Abilities.Contains(AbilityResurrection) {
+		ms.setAbilityFlag(AbilityResurrection, abilityFlagWindow, true)
 	}
 }
 
@@ -133,9 +288,6 @@ func (e *Engine) startNewMove(req MoveRequest) error {
 
 	// Calculate the total step budget for this turn.
 	totalSteps := e.calculateStepBudget(pc)
-	usedPhasing := e.canPhaseThrough(pc, from, to)
-
-	// Create the new MoveState for the current turn.
 	firstSegmentCost := e.calculateMovementCost(pc, from, to)
 	remainingSteps := totalSteps - firstSegmentCost
 	if remainingSteps < 0 {
@@ -145,18 +297,14 @@ func (e *Engine) startNewMove(req MoveRequest) error {
 	maxCaptures := e.calculateMaxCaptures(pc)
 
 	e.currentMove = &MoveState{
-		Piece:           pc,
-		RemainingSteps:  remainingSteps,
-		UsedPhasing:     usedPhasing,
-		Path:            []Square{from, to},
-		Captures:        []*Piece{},
-		HasChainKill:    e.hasChainKill(pc),
-		HasQuantumKill:  e.hasQuantumKill(pc),
-		HasDoubleKill:   e.hasDoubleKill(pc),
-		HasResurrection: pc.Abilities.Contains(AbilityResurrection),
-		MaxCaptures:     maxCaptures,
-		Promotion:       req.Promotion,
-		PromotionSet:    req.HasPromotion,
+		Piece:          pc,
+		RemainingSteps: remainingSteps,
+		Path:           []Square{from, to},
+		Captures:       []*Piece{},
+		AbilityData:    newAbilityRuntimeMap(pc.Abilities),
+		MaxCaptures:    maxCaptures,
+		Promotion:      req.Promotion,
+		PromotionSet:   req.HasPromotion,
 	}
 
 	// The move is now valid, push the state before executing.
@@ -247,8 +395,8 @@ func (e *Engine) continueMove(req MoveRequest) error {
 		return fmt.Errorf("insufficient steps: %d needed, %d remaining", stepsNeeded, e.currentMove.RemainingSteps)
 	}
 
-	if e.currentMove.ResurrectionWindow {
-		e.currentMove.ResurrectionWindow = false
+	if pc.Abilities.Contains(AbilityResurrection) && e.currentMove.abilityFlag(AbilityResurrection, abilityFlagWindow) {
+		e.currentMove.setAbilityFlag(AbilityResurrection, abilityFlagWindow, false)
 	}
 
 	target := e.board.pieceAt[to]
@@ -328,7 +476,7 @@ func (e *Engine) trySideStepNudge(pc *Piece, from, to Square) (bool, error) {
 	if e.currentMove == nil || pc == nil {
 		return false, nil
 	}
-	if !pc.Abilities.Contains(AbilitySideStep) || e.currentMove.SideStepUsed || e.currentMove.RemainingSteps <= 0 {
+	if !pc.Abilities.Contains(AbilitySideStep) || e.currentMove.abilityUsed(AbilitySideStep) || e.currentMove.RemainingSteps <= 0 {
 		return false, nil
 	}
 	if !isAdjacentSquare(from, to) {
@@ -345,7 +493,7 @@ func (e *Engine) trySideStepNudge(pc *Piece, from, to Square) (bool, error) {
 	e.recordSquareForUndo(from)
 	e.recordSquareForUndo(to)
 	e.currentMove.RemainingSteps--
-	e.currentMove.SideStepUsed = true
+	e.currentMove.markAbilityUsed(AbilitySideStep)
 
 	segmentCtx := moveSegmentContext{}
 	e.executeMoveSegment(from, to, segmentCtx)
@@ -353,7 +501,9 @@ func (e *Engine) trySideStepNudge(pc *Piece, from, to Square) (bool, error) {
 	e.handlePostSegment(pc, from, to, nil)
 
 	if e.currentMove != nil {
-		e.currentMove.ResurrectionWindow = false
+		if pc.Abilities.Contains(AbilityResurrection) {
+			e.currentMove.setAbilityFlag(AbilityResurrection, abilityFlagWindow, false)
+		}
 	}
 
 	appendAbilityNote(&e.board.lastNote, "Side Step nudge (cost 1 step)")
@@ -373,7 +523,7 @@ func (e *Engine) tryQuantumStep(pc *Piece, from, to Square) (bool, error) {
 	if e.currentMove == nil || pc == nil {
 		return false, nil
 	}
-	if !pc.Abilities.Contains(AbilityQuantumStep) || e.currentMove.QuantumStepUsed || e.currentMove.RemainingSteps <= 0 {
+	if !pc.Abilities.Contains(AbilityQuantumStep) || e.currentMove.abilityUsed(AbilityQuantumStep) || e.currentMove.RemainingSteps <= 0 {
 		return false, nil
 	}
 
@@ -391,8 +541,10 @@ func (e *Engine) tryQuantumStep(pc *Piece, from, to Square) (bool, error) {
 	if e.currentMove.RemainingSteps < 0 {
 		e.currentMove.RemainingSteps = 0
 	}
-	e.currentMove.QuantumStepUsed = true
-	e.currentMove.ResurrectionWindow = false
+	e.currentMove.markAbilityUsed(AbilityQuantumStep)
+	if pc.Abilities.Contains(AbilityResurrection) {
+		e.currentMove.setAbilityFlag(AbilityResurrection, abilityFlagWindow, false)
+	}
 
 	if ally == nil {
 		e.executeMoveSegment(from, to, moveSegmentContext{})
@@ -609,7 +761,7 @@ func (e *Engine) calculateMovementCost(pc *Piece, from, to Square) int {
 			currentDir := shared.DirectionOf(from, to)
 
 			if prevDir != currentDir && prevDir != DirNone && currentDir != DirNone {
-				if !(pc.Abilities.Contains(AbilityMistShroud) && e.currentMove != nil && e.currentMove.FreeTurnsUsed == 0) {
+				if !(pc.Abilities.Contains(AbilityMistShroud) && e.currentMove != nil && e.currentMove.abilityCounter(AbilityMistShroud, abilityCounterFree) == 0) {
 					cost++ // Direction change costs an extra step.
 				}
 			}
@@ -642,7 +794,7 @@ func (e *Engine) isFloodWakePushAvailable(pc *Piece, from, to Square, target *Pi
 	if dr+df != 1 {
 		return false
 	}
-	if e.currentMove != nil && e.currentMove.FloodWakePushUsed {
+	if e.currentMove != nil && e.currentMove.abilityUsed(AbilityFloodWake) {
 		return false
 	}
 	return true
@@ -661,7 +813,7 @@ func (e *Engine) isBlazeRushDash(pc *Piece, from, to Square, target *Piece) bool
 	if e.currentMove == nil {
 		return false
 	}
-	if e.currentMove.BlazeRushUsed || e.currentMove.LastSegmentCaptured {
+	if e.currentMove.abilityUsed(AbilityBlazeRush) || e.currentMove.LastSegmentCaptured {
 		return false
 	}
 	pathLen := len(e.currentMove.Path)
@@ -690,12 +842,12 @@ func (e *Engine) handlePostSegment(pc *Piece, from, to Square, target *Piece) {
 	e.currentMove.LastSegmentCaptured = target != nil
 
 	if e.isFloodWakePushAvailable(pc, from, to, target) {
-		e.currentMove.FloodWakePushUsed = true
+		e.currentMove.markAbilityUsed(AbilityFloodWake)
 		appendAbilityNote(&e.board.lastNote, "Flood Wake push (free)")
 	}
 
 	if e.isBlazeRushDash(pc, from, to, target) {
-		e.currentMove.BlazeRushUsed = true
+		e.currentMove.markAbilityUsed(AbilityBlazeRush)
 		appendAbilityNote(&e.board.lastNote, "Blaze Rush dash (free)")
 	}
 
@@ -720,8 +872,8 @@ func (e *Engine) logDirectionChange(pc *Piece) {
 		return
 	}
 
-	if pc.Abilities.Contains(AbilityMistShroud) && e.currentMove.FreeTurnsUsed == 0 {
-		e.currentMove.FreeTurnsUsed++
+	if pc.Abilities.Contains(AbilityMistShroud) && e.currentMove.abilityCounter(AbilityMistShroud, abilityCounterFree) == 0 {
+		e.currentMove.addAbilityCounter(AbilityMistShroud, abilityCounterFree, 1)
 		appendAbilityNote(&e.board.lastNote, "Mist Shroud free pivot")
 		return
 	}
@@ -746,7 +898,7 @@ func (e *Engine) hasBlazeRushOption(pc *Piece) bool {
 	if pc == nil || !pc.Abilities.Contains(AbilityBlazeRush) {
 		return false
 	}
-	if e.currentMove == nil || e.currentMove.BlazeRushUsed || e.currentMove.LastSegmentCaptured {
+	if e.currentMove == nil || e.currentMove.abilityUsed(AbilityBlazeRush) || e.currentMove.LastSegmentCaptured {
 		return false
 	}
 	if !e.isSlider(pc.Type) {
@@ -793,7 +945,7 @@ func (e *Engine) hasFloodWakePushOption(pc *Piece) bool {
 	if pc == nil || !pc.Abilities.Contains(AbilityFloodWake) {
 		return false
 	}
-	if e.currentMove == nil || e.currentMove.FloodWakePushUsed {
+	if e.currentMove == nil || e.currentMove.abilityUsed(AbilityFloodWake) {
 		return false
 	}
 	if elementOf(e, pc) != ElementWater {
@@ -883,11 +1035,11 @@ func (e *Engine) shouldEndTurnAfterCapture(pc *Piece) bool {
 // checkPostMoveAbilities checks for abilities that can be activated after a move segment.
 func (e *Engine) checkPostMoveAbilities(pc *Piece) {
 	// Side Step: Note that an 8-directional nudge is available.
-	if pc.Abilities.Contains(AbilitySideStep) && !e.currentMove.SideStepUsed && e.currentMove.RemainingSteps > 0 {
+	if pc.Abilities.Contains(AbilitySideStep) && !e.currentMove.abilityUsed(AbilitySideStep) && e.currentMove.RemainingSteps > 0 {
 		appendAbilityNote(&e.board.lastNote, "Side Step available (costs 1 step)")
 	}
 	// Quantum Step: Note that an adjacent relocation is available.
-	if pc.Abilities.Contains(AbilityQuantumStep) && !e.currentMove.QuantumStepUsed && e.currentMove.RemainingSteps > 0 {
+	if pc.Abilities.Contains(AbilityQuantumStep) && !e.currentMove.abilityUsed(AbilityQuantumStep) && e.currentMove.RemainingSteps > 0 {
 		appendAbilityNote(&e.board.lastNote, "Quantum Step available (costs 1 step)")
 	}
 }
@@ -1108,7 +1260,7 @@ func (e *Engine) isLegalFirstSegment(pc *Piece, from, to Square) bool {
 func (e *Engine) isLegalContinuation(pc *Piece, from, to Square) bool {
 	// For Chain Kill, any legal move is a valid continuation to another capture.
 	target := e.board.pieceAt[to]
-	if e.currentMove.HasChainKill && target != nil && target.Color != pc.Color {
+	if pc.Abilities.Contains(AbilityChainKill) && target != nil && target.Color != pc.Color {
 		return e.isLegalFirstSegment(pc, from, to)
 	}
 

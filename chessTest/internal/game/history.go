@@ -159,6 +159,14 @@ func cloneMoveState(src *MoveState) *MoveState {
 	clone := *src
 	clone.Path = append([]Square(nil), src.Path...)
 	clone.Captures = append([]*Piece(nil), src.Captures...)
+	if len(src.AbilityData) > 0 {
+		clone.AbilityData = make(map[Ability]*AbilityRuntime, len(src.AbilityData))
+		for ability, runtime := range src.AbilityData {
+			clone.AbilityData[ability] = runtime.Clone()
+		}
+	} else {
+		clone.AbilityData = nil
+	}
 	return &clone
 }
 
