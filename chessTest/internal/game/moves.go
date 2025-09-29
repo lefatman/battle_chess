@@ -177,6 +177,7 @@ func (e *Engine) startNewMove(req MoveRequest) error {
 		if err := e.ResolveCaptureAbility(pc, segmentCtx.capture, segmentCtx.captureSquare); err != nil {
 			// If DoOver was triggered, the state is already rewound. Abort.
 			e.currentMove = nil // Clear the invalid move state
+			e.abilityCtx.clear()
 			return err
 		}
 		if !e.currentMove.canCaptureMore() {
@@ -302,6 +303,7 @@ func (e *Engine) continueMove(req MoveRequest) error {
 		e.currentMove.registerCapture(segmentCtx.capture)
 		if err := e.ResolveCaptureAbility(pc, segmentCtx.capture, segmentCtx.captureSquare); err != nil {
 			e.currentMove = nil
+			e.abilityCtx.clear()
 			return err
 		}
 		if !e.currentMove.canCaptureMore() {
@@ -522,6 +524,7 @@ func (e *Engine) endTurn() {
 
 	// Clear the current move state, officially ending the turn.
 	e.currentMove = nil
+	e.abilityCtx.clear()
 }
 
 func (e *Engine) applyTemporalLockSlow(pc *Piece) {
