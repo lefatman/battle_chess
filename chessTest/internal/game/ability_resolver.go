@@ -17,7 +17,7 @@ func (e *Engine) ResolveCaptureAbility(attacker, victim *Piece, captureSquare Sq
 	}
 
 	if e.currentMove != nil {
-		e.currentMove.setAbilityFlag(AbilityNone, abilityFlagCaptureExtra, false)
+		e.currentMove.resetExtraRemoval()
 	}
 
 	outcome, err := e.dispatchCaptureResolutionHandlers(attacker, victim, captureSquare, segmentStep)

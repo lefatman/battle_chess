@@ -9,10 +9,12 @@ func init() {
 	mustRegisterBuiltin(shared.AbilityDoubleKill, game.NewDoubleKillHandler)
 	mustRegisterBuiltin(shared.AbilityScorch, game.NewScorchHandler)
 	mustRegisterBuiltin(shared.AbilityQuantumKill, game.NewQuantumKillHandler)
+	mustRegisterBuiltin(shared.AbilityChainKill, game.NewChainKillHandler)
 	mustRegisterBuiltin(shared.AbilityPoisonousMeat, game.NewPoisonousMeatHandler)
 	mustRegisterBuiltin(shared.AbilityOverload, game.NewOverloadHandler)
 	mustRegisterBuiltin(shared.AbilityBastion, game.NewBastionHandler)
 	mustRegisterBuiltin(shared.AbilityTemporalLock, game.NewTemporalLockHandler)
+	mustRegisterBuiltin(shared.AbilityResurrection, game.NewResurrectionHandler)
 }
 
 func mustRegisterBuiltin(id shared.Ability, ctor func() game.AbilityHandler) {
