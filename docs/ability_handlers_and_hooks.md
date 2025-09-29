@@ -4,6 +4,90 @@ The table below records each `MoveState` field in `internal/game/moves.go` that 
 specific ability or rule. For each entry the owning mechanic and the scope of the state are noted so
 that future refactors can relocate the data into ability-owned handlers.
 
+## Ability registry planning
+
+### Ability constant index
+
+The upcoming handler registry will key lookups by the numeric value of each ability constant. The
+table below pulls the enum ordering directly from `internal/shared/types.go` so implementers can
+assign stable indices without chasing the source file. `AbilityNone` retains the `0` slot for
+"unassigned" entries while every active ability occupies a contiguous positive integer value.
+
+| Ability | Value |
+| --- | --- |
+| `AbilityNone` | 0 |
+| `AbilityDoOver` | 1 |
+| `AbilityBlockPath` | 2 |
+| `AbilityDoubleKill` | 3 |
+| `AbilityObstinant` | 4 |
+| `AbilityScorch` | 5 |
+| `AbilityBlazeRush` | 6 |
+| `AbilityFloodWake` | 7 |
+| `AbilityMistShroud` | 8 |
+| `AbilityBastion` | 9 |
+| `AbilityGaleLift` | 10 |
+| `AbilityTailwind` | 11 |
+| `AbilityScatterShot` | 12 |
+| `AbilityOverload` | 13 |
+| `AbilityRadiantVision` | 14 |
+| `AbilityUmbralStep` | 15 |
+| `AbilitySideStep` | 16 |
+| `AbilityQuantumStep` | 17 |
+| `AbilityStalwart` | 18 |
+| `AbilityBelligerent` | 19 |
+| `AbilityIndomitable` | 20 |
+| `AbilityQuantumKill` | 21 |
+| `AbilityChainKill` | 22 |
+| `AbilityPoisonousMeat` | 23 |
+| `AbilityResurrection` | 24 |
+| `AbilityTemporalLock` | 25 |
+| `AbilitySchrodingersLaugh` | 26 |
+
+### Shared ability aliases
+
+Handlers must accept ability references sourced from both individual pieces and side-level loadouts.
+The shared package defines the project-wide aliases below; the registry should consume these types so
+callers can pass either list transparently.
+
+* `type Ability uint8` – canonical enum backing the ability constants. 【F:chessTest/internal/shared/types.go†L95-L127】
+* `type AbilityList []Ability` – slice alias used for both piece ability arrays (`pc.Abilities`) and
+  side-level ability collections (`e.abilities[color]`). 【F:chessTest/internal/shared/abilities.go†L5-L60】
+
+### Ability → handler sketchpad
+
+During the registry refactor, wire each ability's numeric key to the handler responsible for owning
+its logic. The matrix below captures the intended mapping surface so implementation work can fill in
+concrete handler names as they are introduced.
+
+| Ability | Handler type / notes |
+| --- | --- |
+| `AbilityDoOver` | |
+| `AbilityBlockPath` | |
+| `AbilityDoubleKill` | |
+| `AbilityObstinant` | |
+| `AbilityScorch` | |
+| `AbilityBlazeRush` | |
+| `AbilityFloodWake` | |
+| `AbilityMistShroud` | |
+| `AbilityBastion` | |
+| `AbilityGaleLift` | |
+| `AbilityTailwind` | |
+| `AbilityScatterShot` | |
+| `AbilityOverload` | |
+| `AbilityRadiantVision` | |
+| `AbilityUmbralStep` | |
+| `AbilitySideStep` | |
+| `AbilityQuantumStep` | |
+| `AbilityStalwart` | |
+| `AbilityBelligerent` | |
+| `AbilityIndomitable` | |
+| `AbilityQuantumKill` | |
+| `AbilityChainKill` | |
+| `AbilityPoisonousMeat` | |
+| `AbilityResurrection` | |
+| `AbilityTemporalLock` | |
+| `AbilitySchrodingersLaugh` | |
+
 | Field | Ability / Rule | Scope | Notes |
 | --- | --- | --- | --- |
 | `UsedPhasing` | Gale Lift / Umbral Step phasing | Per turn | Snapshot of whether the current mover can phase through blockers; derived from `canPhaseThrough` and carried for the whole move. 【F:chessTest/internal/game/moves.go†L12-L33】【F:chessTest/internal/game/piece_ops.go†L191-L233】
