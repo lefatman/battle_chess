@@ -151,10 +151,10 @@ func (e *Engine) executeSpecialMovePlan(pc *Piece, from, to Square, plan Special
 	if plan.MarkAbilityUsed && plan.Ability != AbilityNone {
 		e.currentMove.markAbilityUsed(plan.Ability)
 	}
-	if plan.ResetResurrection && pc != nil && pc.Abilities.Contains(AbilityResurrection) {
-		e.currentMove.setAbilityFlag(AbilityResurrection, abilityFlagWindow, false)
-		e.currentMove.setAbilityCounter(AbilityResurrection, abilityCounterResurrectionWindow, 0)
-	}
+        if plan.ResetResurrection && pc != nil && pc.HasAbility(AbilityResurrection) {
+                e.currentMove.setAbilityFlag(AbilityResurrection, abilityFlagWindow, false)
+                e.currentMove.setAbilityCounter(AbilityResurrection, abilityCounterResurrectionWindow, 0)
+        }
 
 	segmentStep := len(e.currentMove.Path) - 1
 	if segmentStep < 0 {
@@ -426,9 +426,9 @@ func (e *Engine) hasFloodWakePushOption(pc *Piece) bool {
 }
 
 func (e *Engine) blazeRushContinuationAvailable(pc *Piece) bool {
-	if pc == nil || !pc.Abilities.Contains(AbilityBlazeRush) {
-		return false
-	}
+        if pc == nil || !pc.HasAbility(AbilityBlazeRush) {
+                return false
+        }
 	if e.currentMove == nil || e.currentMove.abilityUsed(AbilityBlazeRush) || e.currentMove.LastSegmentCaptured {
 		return false
 	}
@@ -455,9 +455,9 @@ func (e *Engine) blazeRushContinuationAvailable(pc *Piece) bool {
 }
 
 func (e *Engine) floodWakeContinuationAvailable(pc *Piece) bool {
-	if pc == nil || !pc.Abilities.Contains(AbilityFloodWake) {
-		return false
-	}
+        if pc == nil || !pc.HasAbility(AbilityFloodWake) {
+                return false
+        }
 	if e.currentMove == nil || e.currentMove.abilityUsed(AbilityFloodWake) {
 		return false
 	}
@@ -520,21 +520,21 @@ func maxInt(a, b int) int {
 }
 
 func (e *Engine) checkPostMoveAbilities(pc *Piece) {
-	if pc.Abilities.Contains(AbilitySideStep) && !e.currentMove.abilityUsed(AbilitySideStep) && e.currentMove.RemainingSteps > 0 {
-		appendAbilityNote(&e.board.lastNote, "Side Step available (costs 1 step)")
-	}
-	if pc.Abilities.Contains(AbilityQuantumStep) && !e.currentMove.abilityUsed(AbilityQuantumStep) && e.currentMove.RemainingSteps > 0 {
-		appendAbilityNote(&e.board.lastNote, "Quantum Step available (costs 1 step)")
-	}
+        if pc.HasAbility(AbilitySideStep) && !e.currentMove.abilityUsed(AbilitySideStep) && e.currentMove.RemainingSteps > 0 {
+                appendAbilityNote(&e.board.lastNote, "Side Step available (costs 1 step)")
+        }
+        if pc.HasAbility(AbilityQuantumStep) && !e.currentMove.abilityUsed(AbilityQuantumStep) && e.currentMove.RemainingSteps > 0 {
+                appendAbilityNote(&e.board.lastNote, "Quantum Step available (costs 1 step)")
+        }
 }
 
 func (e *Engine) isFloodWakePushAvailable(pc *Piece, from, to Square, target *Piece) bool {
-	if pc == nil || target != nil {
-		return false
-	}
-	if !pc.Abilities.Contains(AbilityFloodWake) {
-		return false
-	}
+        if pc == nil || target != nil {
+                return false
+        }
+        if !pc.HasAbility(AbilityFloodWake) {
+                return false
+        }
 	if elementOf(e, pc) != ElementWater {
 		return false
 	}
@@ -550,12 +550,12 @@ func (e *Engine) isFloodWakePushAvailable(pc *Piece, from, to Square, target *Pi
 }
 
 func (e *Engine) isBlazeRushDash(pc *Piece, from, to Square, target *Piece) bool {
-	if pc == nil || target != nil {
-		return false
-	}
-	if !pc.Abilities.Contains(AbilityBlazeRush) {
-		return false
-	}
+        if pc == nil || target != nil {
+                return false
+        }
+        if !pc.HasAbility(AbilityBlazeRush) {
+                return false
+        }
 	if !e.isSlider(pc.Type) {
 		return false
 	}

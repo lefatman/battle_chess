@@ -20,6 +20,11 @@ func (e *Engine) startNewMove(req MoveRequest) error {
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if e.currentMove == nil {
+			e.resetAbilityHandlers()
+		}
+	}()
 
 	target := e.board.pieceAt[to]
 	if target != nil && target.Color == pc.Color {
@@ -174,6 +179,12 @@ func (e *Engine) continueMove(req MoveRequest) error {
 		return errors.New("no active move to continue")
 	}
 
+	defer func() {
+		if e.currentMove == nil {
+			e.resetAbilityHandlers()
+		}
+	}()
+
 	pc := e.currentMove.Piece
 	from, to := req.From, req.To
 	if from != pc.Square {
@@ -247,7 +258,7 @@ func (e *Engine) continueMove(req MoveRequest) error {
 		return fmt.Errorf("insufficient steps: %d needed, %d remaining", stepsNeeded, e.currentMove.RemainingSteps)
 	}
 
-	if len(e.handlersForAbility(AbilityResurrection)) == 0 && pc.Abilities.Contains(AbilityResurrection) && e.currentMove.abilityFlag(AbilityResurrection, abilityFlagWindow) {
+	if len(e.handlersForAbility(AbilityResurrection)) == 0 && pc.HasAbility(AbilityResurrection) && e.currentMove.abilityFlag(AbilityResurrection, abilityFlagWindow) {
 		e.currentMove.setAbilityFlag(AbilityResurrection, abilityFlagWindow, false)
 		e.currentMove.setAbilityCounter(AbilityResurrection, abilityCounterResurrectionWindow, 0)
 	}

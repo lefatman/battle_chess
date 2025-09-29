@@ -1,178 +1,240 @@
 // path: chessTest/internal/game/ability_dispatch.go
 package game
 
-import "errors"
+import (
+	"errors"
+	"sync"
+)
+
+type abilityHandlerTable struct {
+	handlers [AbilityCount][]AbilityHandler
+	total    int
+}
+
+func (t *abilityHandlerTable) reset() {
+	if t == nil {
+		return
+	}
+	for i := range t.handlers {
+		t.handlers[i] = t.handlers[i][:0]
+	}
+	t.total = 0
+}
+
+func (t *abilityHandlerTable) append(id Ability, handler AbilityHandler) {
+	if t == nil || handler == nil {
+		return
+	}
+	idx := abilityIndex(id)
+	if idx < 0 {
+		return
+	}
+	t.handlers[idx] = append(t.handlers[idx], handler)
+	t.total++
+}
+
+func (t *abilityHandlerTable) appendAll(id Ability, src []AbilityHandler) {
+	if t == nil || len(src) == 0 {
+		return
+	}
+	idx := abilityIndex(id)
+	if idx < 0 {
+		return
+	}
+	t.handlers[idx] = append(t.handlers[idx], src...)
+	t.total += len(src)
+}
+
+func (t *abilityHandlerTable) handlersFor(id Ability) []AbilityHandler {
+	if t == nil {
+		return nil
+	}
+	idx := abilityIndex(id)
+	if idx < 0 {
+		return nil
+	}
+	return t.handlers[idx]
+}
+
+func (t *abilityHandlerTable) has(id Ability) bool {
+	if t == nil {
+		return false
+	}
+	idx := abilityIndex(id)
+	if idx < 0 {
+		return false
+	}
+	return len(t.handlers[idx]) > 0
+}
+
+func (t *abilityHandlerTable) empty() bool { return t == nil || t.total == 0 }
+
+func (t *abilityHandlerTable) forEach(fn func(Ability, AbilityHandler) error) error {
+	if t == nil || t.total == 0 {
+		return nil
+	}
+	for idx := 0; idx < AbilityCount; idx++ {
+		ability := Ability(idx)
+		for _, handler := range t.handlers[idx] {
+			if handler == nil {
+				continue
+			}
+			if err := fn(ability, handler); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+var abilityHandlerTablePool = sync.Pool{
+	New: func() any { return &abilityHandlerTable{} },
+}
+
+func borrowAbilityHandlers() *abilityHandlerTable {
+	table := abilityHandlerTablePool.Get().(*abilityHandlerTable)
+	table.reset()
+	return table
+}
+
+func releaseAbilityHandlers(table *abilityHandlerTable) {
+	if table == nil {
+		return
+	}
+	table.reset()
+	abilityHandlerTablePool.Put(table)
+}
 
 func (e *Engine) resetAbilityHandlers() {
 	if e.abilityHandlers == nil {
 		return
 	}
-	for key := range e.abilityHandlers {
-		delete(e.abilityHandlers, key)
-	}
+	releaseAbilityHandlers(e.abilityHandlers)
+	e.abilityHandlers = nil
 }
 
-func (e *Engine) instantiateAbilityHandlers(pc *Piece) (map[Ability][]AbilityHandler, error) {
+func (e *Engine) instantiateAbilityHandlers(pc *Piece) (*abilityHandlerTable, error) {
 	e.resetAbilityHandlers()
-	if pc == nil || len(pc.Abilities) == 0 {
+	if pc == nil || pc.AbilityMask.Empty() {
 		return nil, nil
 	}
 
-	var handlers map[Ability][]AbilityHandler
+	var table *abilityHandlerTable
+	seen := AbilitySet(0)
 	for _, ability := range pc.Abilities {
 		if ability == AbilityNone {
 			continue
 		}
+		if seen.Has(ability) {
+			continue
+		}
+		seen = seen.With(ability)
 
 		handler, err := resolveAbilityHandler(ability)
-		if err != nil {
-			if errors.Is(err, ErrAbilityNotRegistered) {
-				continue
+		switch {
+		case err == nil:
+			if handler != nil {
+				if table == nil {
+					table = borrowAbilityHandlers()
+				}
+				table.append(ability, handler)
 			}
-			if errors.Is(err, ErrAbilityFactoryNotConfigured) {
-				return nil, err
+		case errors.Is(err, ErrAbilityNotRegistered):
+			// rely on fallback registry
+		case errors.Is(err, ErrAbilityFactoryNotConfigured):
+			if table != nil {
+				releaseAbilityHandlers(table)
+			}
+			return nil, err
+		default:
+			if table != nil {
+				releaseAbilityHandlers(table)
 			}
 			return nil, err
 		}
-		if handler == nil {
-			continue
-		}
-		if handlers == nil {
-			handlers = make(map[Ability][]AbilityHandler)
-		}
-		handlers[ability] = append(handlers[ability], handler)
-	}
 
-	ensureHandlers := func() {
-		if handlers == nil {
-			handlers = make(map[Ability][]AbilityHandler)
+		if table == nil || !table.has(ability) {
+			if fallback := fallbackHandlersFor(ability); len(fallback) > 0 {
+				if table == nil {
+					table = borrowAbilityHandlers()
+				}
+				table.appendAll(ability, fallback)
+			}
 		}
 	}
 
-	if pc.Abilities.Contains(AbilityBlazeRush) && len(handlers[AbilityBlazeRush]) == 0 {
-		ensureHandlers()
-		handlers[AbilityBlazeRush] = append(handlers[AbilityBlazeRush], newBlazeRushFallbackHandler())
-	}
-	if pc.Abilities.Contains(AbilityFloodWake) && len(handlers[AbilityFloodWake]) == 0 {
-		ensureHandlers()
-		handlers[AbilityFloodWake] = append(handlers[AbilityFloodWake], newFloodWakeFallbackHandler())
-	}
-	if pc.Abilities.Contains(AbilitySideStep) && len(handlers[AbilitySideStep]) == 0 {
-		ensureHandlers()
-		handlers[AbilitySideStep] = append(handlers[AbilitySideStep], newSideStepFallbackHandler())
-	}
-	if pc.Abilities.Contains(AbilityQuantumStep) && len(handlers[AbilityQuantumStep]) == 0 {
-		ensureHandlers()
-		handlers[AbilityQuantumStep] = append(handlers[AbilityQuantumStep], newQuantumStepFallbackHandler())
-	}
-	if pc.Abilities.Contains(AbilityMistShroud) && len(handlers[AbilityMistShroud]) == 0 {
-		ensureHandlers()
-		handlers[AbilityMistShroud] = append(handlers[AbilityMistShroud], newMistShroudFallbackHandler())
-	}
-	if pc.Abilities.Contains(AbilityDoubleKill) && len(handlers[AbilityDoubleKill]) == 0 {
-		ensureHandlers()
-		handlers[AbilityDoubleKill] = append(handlers[AbilityDoubleKill], NewDoubleKillHandler())
-	}
-	if pc.Abilities.Contains(AbilityScorch) && len(handlers[AbilityScorch]) == 0 {
-		ensureHandlers()
-		handlers[AbilityScorch] = append(handlers[AbilityScorch], NewScorchHandler())
-	}
-	if pc.Abilities.Contains(AbilityTailwind) && len(handlers[AbilityTailwind]) == 0 {
-		ensureHandlers()
-		handlers[AbilityTailwind] = append(handlers[AbilityTailwind], NewTailwindHandler())
-	}
-	if pc.Abilities.Contains(AbilityRadiantVision) && len(handlers[AbilityRadiantVision]) == 0 {
-		ensureHandlers()
-		handlers[AbilityRadiantVision] = append(handlers[AbilityRadiantVision], NewRadiantVisionHandler())
-	}
-	if pc.Abilities.Contains(AbilityUmbralStep) && len(handlers[AbilityUmbralStep]) == 0 {
-		ensureHandlers()
-		handlers[AbilityUmbralStep] = append(handlers[AbilityUmbralStep], NewUmbralStepHandler())
-	}
-	if pc.Abilities.Contains(AbilityQuantumKill) && len(handlers[AbilityQuantumKill]) == 0 {
-		ensureHandlers()
-		handlers[AbilityQuantumKill] = append(handlers[AbilityQuantumKill], NewQuantumKillHandler())
-	}
-	if pc.Abilities.Contains(AbilityChainKill) && len(handlers[AbilityChainKill]) == 0 {
-		ensureHandlers()
-		handlers[AbilityChainKill] = append(handlers[AbilityChainKill], NewChainKillHandler())
-	}
-	if pc.Abilities.Contains(AbilityGaleLift) && len(handlers[AbilityGaleLift]) == 0 {
-		ensureHandlers()
-		handlers[AbilityGaleLift] = append(handlers[AbilityGaleLift], NewGaleLiftHandler())
-	}
-	if pc.Abilities.Contains(AbilityPoisonousMeat) && len(handlers[AbilityPoisonousMeat]) == 0 {
-		ensureHandlers()
-		handlers[AbilityPoisonousMeat] = append(handlers[AbilityPoisonousMeat], NewPoisonousMeatHandler())
-	}
-	if pc.Abilities.Contains(AbilityOverload) && len(handlers[AbilityOverload]) == 0 {
-		ensureHandlers()
-		handlers[AbilityOverload] = append(handlers[AbilityOverload], NewOverloadHandler())
-	}
-	if pc.Abilities.Contains(AbilityBastion) && len(handlers[AbilityBastion]) == 0 {
-		ensureHandlers()
-		handlers[AbilityBastion] = append(handlers[AbilityBastion], NewBastionHandler())
-	}
-	if pc.Abilities.Contains(AbilitySchrodingersLaugh) && len(handlers[AbilitySchrodingersLaugh]) == 0 {
-		ensureHandlers()
-		handlers[AbilitySchrodingersLaugh] = append(handlers[AbilitySchrodingersLaugh], NewSchrodingersLaughHandler())
-	}
-	if pc.Abilities.Contains(AbilityTemporalLock) && len(handlers[AbilityTemporalLock]) == 0 {
-		ensureHandlers()
-		handlers[AbilityTemporalLock] = append(handlers[AbilityTemporalLock], NewTemporalLockHandler())
-	}
-	if pc.Abilities.Contains(AbilityResurrection) && len(handlers[AbilityResurrection]) == 0 {
-		ensureHandlers()
-		handlers[AbilityResurrection] = append(handlers[AbilityResurrection], NewResurrectionHandler())
-	}
-
-	if len(handlers) == 0 {
+	if table == nil || table.total == 0 {
+		if table != nil {
+			releaseAbilityHandlers(table)
+		}
 		e.abilityHandlers = nil
 		return nil, nil
 	}
 
-	e.abilityHandlers = handlers
-	return handlers, nil
+	e.abilityHandlers = table
+	return table, nil
 }
 
-func (e *Engine) instantiateSideAbilityHandlers(pc *Piece, existing map[Ability][]AbilityHandler) (map[Ability][]AbilityHandler, error) {
+func (e *Engine) instantiateSideAbilityHandlers(pc *Piece, existing *abilityHandlerTable) (*abilityHandlerTable, error) {
 	if pc == nil {
 		return nil, nil
 	}
 
-	abilities := e.abilities[pc.Color.Index()]
-	if len(abilities) == 0 {
+	mask := e.abilityMasks[pc.Color.Index()]
+	if mask.Empty() {
 		return nil, nil
 	}
 
-	var handlers map[Ability][]AbilityHandler
-	for _, ability := range abilities {
+	var table *abilityHandlerTable
+	seen := AbilitySet(0)
+	for _, ability := range e.abilities[pc.Color.Index()] {
 		if ability == AbilityNone {
 			continue
 		}
-		if existing != nil && len(existing[ability]) > 0 {
+		if !mask.Has(ability) || seen.Has(ability) {
 			continue
 		}
+		seen = seen.With(ability)
+		if existing != nil && existing.has(ability) {
+			continue
+		}
+
 		handler, err := resolveAbilityHandler(ability)
-		if err != nil {
-			if errors.Is(err, ErrAbilityNotRegistered) {
-				continue
+		switch {
+		case err == nil:
+			if handler != nil {
+				if table == nil {
+					table = borrowAbilityHandlers()
+				}
+				table.append(ability, handler)
+			}
+		case errors.Is(err, ErrAbilityNotRegistered):
+			continue
+		case errors.Is(err, ErrAbilityFactoryNotConfigured):
+			if table != nil {
+				releaseAbilityHandlers(table)
+			}
+			return nil, err
+		default:
+			if table != nil {
+				releaseAbilityHandlers(table)
 			}
 			return nil, err
 		}
-		if handler == nil {
-			continue
-		}
-		if handlers == nil {
-			handlers = make(map[Ability][]AbilityHandler)
-		}
-		handlers[ability] = append(handlers[ability], handler)
 	}
-	return handlers, nil
+
+	if table == nil || table.total == 0 {
+		if table != nil {
+			releaseAbilityHandlers(table)
+		}
+		return nil, nil
+	}
+
+	return table, nil
 }
 
-func (e *Engine) activeHandlers() map[Ability][]AbilityHandler {
-	if e.currentMove != nil && len(e.currentMove.Handlers) > 0 {
+func (e *Engine) activeHandlers() *abilityHandlerTable {
+	if e.currentMove != nil && e.currentMove.Handlers != nil && !e.currentMove.Handlers.empty() {
 		return e.currentMove.Handlers
 	}
 	return e.abilityHandlers
@@ -185,26 +247,16 @@ func (e *Engine) handlersForAbility(id Ability) []AbilityHandler {
 		}
 	}
 	if e.abilityHandlers != nil {
-		return e.abilityHandlers[id]
+		return e.abilityHandlers.handlersFor(id)
 	}
 	return nil
 }
 
-func (e *Engine) forEachHandler(handlerMap map[Ability][]AbilityHandler, fn func(Ability, AbilityHandler) error) error {
-	if len(handlerMap) == 0 {
+func (e *Engine) forEachHandler(table *abilityHandlerTable, fn func(Ability, AbilityHandler) error) error {
+	if table == nil {
 		return nil
 	}
-	for ability, handlers := range handlerMap {
-		for _, handler := range handlers {
-			if handler == nil {
-				continue
-			}
-			if err := fn(ability, handler); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
+	return table.forEach(fn)
 }
 
 func (e *Engine) forEachActiveHandler(fn func(Ability, AbilityHandler) error) error {

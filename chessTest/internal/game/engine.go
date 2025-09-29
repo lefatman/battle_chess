@@ -11,6 +11,7 @@ import (
 type Engine struct {
 	board           Board
 	abilities       [2]AbilityList
+	abilityMasks    [2]AbilitySet
 	elements        [2]Element
 	blockFacing     map[int]Direction
 	history         []*historyDelta
@@ -21,7 +22,7 @@ type Engine struct {
 	pendingDoOver   map[int]bool // Tracks per-piece DoOver consumption
 	currentMove     *MoveState
 	temporalSlow    [2]int
-	abilityHandlers map[Ability][]AbilityHandler
+	abilityHandlers *abilityHandlerTable
 	abilityCtx      abilityContextCache
 }
 
@@ -45,13 +46,52 @@ type Board struct {
 
 // Piece represents a single piece on the board.
 type Piece struct {
-	ID        int
-	Color     Color
-	Type      PieceType
-	Square    Square
-	Abilities AbilityList
-	Element   Element
-	BlockDir  Direction
+	ID          int
+	Color       Color
+	Type        PieceType
+	Square      Square
+	Abilities   AbilityList
+	AbilityMask AbilitySet
+	Element     Element
+	BlockDir    Direction
+}
+
+func (p *Piece) SetAbilities(list AbilityList) {
+	if p == nil {
+		return
+	}
+	p.Abilities = list
+	p.AbilityMask = list.Set()
+}
+
+func (p *Piece) CloneAbilitiesFrom(list AbilityList) {
+	if p == nil {
+		return
+	}
+	p.SetAbilities(list.Clone())
+}
+
+func (p *Piece) HasAbility(id Ability) bool {
+	if p == nil {
+		return false
+	}
+	return p.AbilityMask.Has(id)
+}
+
+func (p *Piece) RemoveAbility(id Ability) {
+	if p == nil || !p.HasAbility(id) {
+		return
+	}
+	write := 0
+	for _, ability := range p.Abilities {
+		if ability == id {
+			continue
+		}
+		p.Abilities[write] = ability
+		write++
+	}
+	p.Abilities = p.Abilities[:write]
+	p.AbilityMask = p.AbilityMask.Without(id)
 }
 
 // MoveRequest is passed in by an external layer to request a move.
@@ -110,13 +150,14 @@ type AbilityRuntimeState struct {
 func NewEngine() *Engine {
 	eng := &Engine{
 		abilities:       [2]AbilityList{},
+		abilityMasks:    [2]AbilitySet{},
 		elements:        [2]Element{ElementLight, ElementShadow},
 		blockFacing:     make(map[int]Direction),
 		configured:      [2]bool{},
 		pendingDoOver:   make(map[int]bool),
 		currentMove:     nil,
 		temporalSlow:    [2]int{},
-		abilityHandlers: make(map[Ability][]AbilityHandler),
+		abilityHandlers: nil,
 	}
 	if err := eng.Reset(); err != nil {
 		panic(err) // Should not happen on initial setup
@@ -139,6 +180,9 @@ func (e *Engine) Reset() error {
 	}
 	for i := range e.configured {
 		e.configured[i] = false
+	}
+	for i := range e.abilityMasks {
+		e.abilityMasks[i] = 0
 	}
 	if e.pendingDoOver == nil {
 		e.pendingDoOver = make(map[int]bool)
@@ -181,12 +225,13 @@ func (e *Engine) SetSideConfig(color Color, abilities AbilityList, element Eleme
 	}
 	idx := color.Index()
 	e.abilities[idx] = abilities.Clone()
+	e.abilityMasks[idx] = e.abilities[idx].Set()
 	e.elements[idx] = element
 	for _, pc := range e.board.pieceAt {
 		if pc != nil && pc.Color == color {
-			pc.Abilities = abilities.Clone()
+			pc.CloneAbilitiesFrom(abilities)
 			pc.Element = element
-			if !pc.Abilities.Contains(AbilityBlockPath) {
+			if !pc.HasAbility(AbilityBlockPath) {
 				delete(e.blockFacing, pc.ID)
 				pc.BlockDir = DirNone
 			} else {
@@ -281,21 +326,20 @@ func (e *Engine) State() BoardState {
 }
 
 func (e *Engine) ensureAbilityRuntime() {
-	if e.abilityHandlers == nil {
-		e.abilityHandlers = make(map[Ability][]AbilityHandler)
-	}
+	e.resetAbilityHandlers()
 	e.abilityCtx.clear()
 }
 
 func (e *Engine) abilityRuntimeState() AbilityRuntimeState {
 	state := AbilityRuntimeState{}
-	if len(e.abilityHandlers) > 0 {
-		counts := make(map[string]int, len(e.abilityHandlers))
-		for ability, handlers := range e.abilityHandlers {
+	if table := e.abilityHandlers; table != nil && !table.empty() {
+		counts := make(map[string]int)
+		for idx := 0; idx < AbilityCount; idx++ {
+			handlers := table.handlers[idx]
 			if len(handlers) == 0 {
 				continue
 			}
-			counts[ability.String()] = len(handlers)
+			counts[Ability(idx).String()] = len(handlers)
 		}
 		if len(counts) > 0 {
 			state.HandlerCounts = counts
@@ -318,6 +362,10 @@ func (e *Engine) ensureConfigured() error {
 	return nil
 }
 
+func (e *Engine) sideHasAbility(color Color, id Ability) bool {
+	return e.abilityMasks[color.Index()].Has(id)
+}
+
 func (e *Engine) lockConfiguration() error {
 	if e.locked {
 		return errors.New("configuration already locked")
@@ -328,7 +376,7 @@ func (e *Engine) lockConfiguration() error {
 }
 
 func (e *Engine) requireBlockPathDirection(pc *Piece, dir Direction) error {
-	if pc == nil || !pc.Abilities.Contains(AbilityBlockPath) {
+	if pc == nil || !pc.HasAbility(AbilityBlockPath) {
 		return nil
 	}
 	if dir == DirNone {
@@ -340,7 +388,7 @@ func (e *Engine) requireBlockPathDirection(pc *Piece, dir Direction) error {
 }
 
 func (e *Engine) resolveBlockPathFacing(pc *Piece, dir Direction) string {
-	if pc == nil || !pc.Abilities.Contains(AbilityBlockPath) {
+	if pc == nil || !pc.HasAbility(AbilityBlockPath) {
 		return ""
 	}
 	e.recordBlockFacingForUndo(pc.ID)
@@ -458,7 +506,7 @@ func (e *Engine) generateMoves(pc *Piece) Bitboard {
 		moves = 0
 	}
 
-	if pc.Abilities.Contains(AbilityScatterShot) {
+	if pc.HasAbility(AbilityScatterShot) {
 		moves = e.addScatterShotCaptures(pc, moves)
 	}
 	if e.resurrectionWindowActive(pc) {
@@ -665,7 +713,7 @@ func (e *Engine) resurrectionWindowActive(pc *Piece) bool {
 	if pc == nil {
 		return false
 	}
-	if !pc.Abilities.Contains(AbilityResurrection) {
+	if !pc.HasAbility(AbilityResurrection) {
 		return false
 	}
 	if handlers := e.handlersForAbility(AbilityResurrection); len(handlers) > 0 {

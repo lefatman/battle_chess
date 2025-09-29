@@ -16,15 +16,16 @@ func (e *Engine) baseStepBudget(pc *Piece) int {
 	return baseSteps
 }
 
-func (e *Engine) calculateStepBudget(pc *Piece, handlers map[Ability][]AbilityHandler) (int, []string, error) {
+func (e *Engine) calculateStepBudget(pc *Piece, handlers *abilityHandlerTable) (int, []string, error) {
 	total := e.baseStepBudget(pc)
 
 	sideHandlers, err := e.instantiateSideAbilityHandlers(pc, handlers)
 	if err != nil {
 		return 0, nil, err
 	}
+	defer releaseAbilityHandlers(sideHandlers)
 
-	if len(handlers) == 0 && len(sideHandlers) == 0 {
+	if (handlers == nil || handlers.empty()) && (sideHandlers == nil || sideHandlers.empty()) {
 		return total, nil, nil
 	}
 
@@ -50,16 +51,18 @@ func (e *Engine) calculateStepBudget(pc *Piece, handlers map[Ability][]AbilityHa
 	}
 
 	var notes []string
-	for _, handlerMap := range []map[Ability][]AbilityHandler{handlers, sideHandlers} {
-		if len(handlerMap) == 0 {
-			continue
+	if handlers != nil {
+		if err := handlers.forEach(func(_ Ability, handler AbilityHandler) error {
+			return apply(handler, &notes)
+		}); err != nil {
+			return 0, nil, err
 		}
-		for _, handlerList := range handlerMap {
-			for _, handler := range handlerList {
-				if err := apply(handler, &notes); err != nil {
-					return 0, nil, err
-				}
-			}
+	}
+	if sideHandlers != nil {
+		if err := sideHandlers.forEach(func(_ Ability, handler AbilityHandler) error {
+			return apply(handler, &notes)
+		}); err != nil {
+			return 0, nil, err
 		}
 	}
 

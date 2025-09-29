@@ -19,17 +19,17 @@ func (e *Engine) pathIsPassable(pc *Piece, from, to Square) bool {
 		if !canPhase {
 			return false
 		}
-		if occupant.Abilities.Contains(AbilityIndomitable) || occupant.Abilities.Contains(AbilityStalwart) {
-			return false
-		}
+                if occupant.HasAbility(AbilityIndomitable) || occupant.HasAbility(AbilityStalwart) {
+                        return false
+                }
 	}
 	return true
 }
 
 func isScatterShotCapture(pc *Piece, from, to Square) bool {
-	if pc == nil || !pc.Abilities.Contains(AbilityScatterShot) {
-		return false
-	}
+        if pc == nil || !pc.HasAbility(AbilityScatterShot) {
+                return false
+        }
 	if from.Rank() != to.Rank() {
 		return false
 	}
@@ -47,15 +47,15 @@ func (e *Engine) canDirectCapture(attacker, defender *Piece, from, to Square) bo
 	if attacker == nil {
 		return false
 	}
-	if defender.Abilities.Contains(AbilityStalwart) && rankOf(attacker.Type) < rankOf(defender.Type) {
-		return false
-	}
-	if defender.Abilities.Contains(AbilityBelligerent) && rankOf(attacker.Type) > rankOf(defender.Type) {
-		return false
-	}
-	if isScatterShotCapture(attacker, from, to) && defender.Abilities.Contains(AbilityIndomitable) {
-		return false
-	}
+        if defender.HasAbility(AbilityStalwart) && rankOf(attacker.Type) < rankOf(defender.Type) {
+                return false
+        }
+        if defender.HasAbility(AbilityBelligerent) && rankOf(attacker.Type) > rankOf(defender.Type) {
+                return false
+        }
+        if isScatterShotCapture(attacker, from, to) && defender.HasAbility(AbilityIndomitable) {
+                return false
+        }
 	return true
 }
 
