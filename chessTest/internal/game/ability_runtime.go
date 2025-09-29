@@ -1,11 +1,7 @@
 // path: chessTest/internal/game/ability_runtime.go
 package game
 
-import (
-	"errors"
-
-	"battle_chess_poc/internal/shared"
-)
+import "errors"
 
 // AbilityRuntime captures mutable per-ability state for the duration of a move.
 // Handlers can store arbitrary flags and counters keyed by semantic labels.
@@ -171,8 +167,8 @@ type StepBudgetDelta struct {
 type PhaseContext struct {
 	Engine *Engine
 	Piece  *Piece
-	From   shared.Square
-	To     shared.Square
+	From   Square
+	To     Square
 }
 
 // MoveLifecycleContext provides data for hooks that run when a new move begins.
@@ -186,7 +182,7 @@ type MoveLifecycleContext struct {
 // SegmentMetadata mirrors the runtime data captured for a move segment.
 type SegmentMetadata struct {
 	Capture       *Piece
-	CaptureSquare shared.Square
+	CaptureSquare Square
 	EnPassant     bool
 }
 
@@ -194,8 +190,8 @@ type SegmentMetadata struct {
 type SegmentContext struct {
 	Engine      *Engine
 	Move        *MoveState
-	From        shared.Square
-	To          shared.Square
+	From        Square
+	To          Square
 	Segment     SegmentMetadata
 	SegmentStep int // zero-based index within the turn
 }
@@ -207,8 +203,8 @@ type SegmentContext struct {
 type SegmentPreparationContext struct {
 	Engine      *Engine
 	Move        *MoveState
-	From        shared.Square
-	To          shared.Square
+	From        Square
+	To          Square
 	Segment     SegmentMetadata
 	SegmentStep int
 	StepCost    *int
@@ -221,8 +217,8 @@ type SegmentPreparationContext struct {
 type SegmentResolutionContext struct {
 	Engine        *Engine
 	Move          *MoveState
-	From          shared.Square
-	To            shared.Square
+	From          Square
+	To            Square
 	Segment       SegmentMetadata
 	SegmentStep   int
 	StepsConsumed int
@@ -234,8 +230,8 @@ type PostSegmentContext struct {
 	Engine      *Engine
 	Move        *MoveState
 	Piece       *Piece
-	From        shared.Square
-	To          shared.Square
+	From        Square
+	To          Square
 	Segment     SegmentMetadata
 	SegmentStep int
 }
@@ -257,8 +253,8 @@ type SpecialMoveContext struct {
 	Engine      *Engine
 	Move        *MoveState
 	Piece       *Piece
-	From        shared.Square
-	To          shared.Square
+	From        Square
+	To          Square
 	Ability     Ability
 	SegmentStep int
 }
@@ -285,7 +281,7 @@ type CaptureContext struct {
 	Move          *MoveState
 	Attacker      *Piece
 	Victim        *Piece
-	CaptureSquare shared.Square
+	CaptureSquare Square
 	SegmentStep   int
 }
 
@@ -348,9 +344,9 @@ type DirectionChangeContext struct {
 	Engine            *Engine
 	Move              *MoveState
 	Piece             *Piece
-	PreviousStart     shared.Square
-	PreviousEnd       shared.Square
-	CurrentEnd        shared.Square
+	PreviousStart     Square
+	PreviousEnd       Square
+	CurrentEnd        Square
 	PreviousDirection Direction
 	CurrentDirection  Direction
 	SegmentStep       int

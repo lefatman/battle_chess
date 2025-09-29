@@ -1,3 +1,4 @@
+// path: chessTest/cmd/server/main.go
 // cmd/battle_chess/main.go (drop-in)
 // No preselected abilities/elements. Players must configure both sides before first move.
 package main
@@ -12,8 +13,7 @@ import (
 	// Adjust these imports to your actual module paths if different.
 	"battle_chess_poc/internal/game" // your engine: NewEngine(), SetSideConfig(...), etc.
 	_ "battle_chess_poc/internal/game/abilities"
-	"battle_chess_poc/internal/httpx"  // your HTTP server wrapper exposing Listen(engine) or similar
-	"battle_chess_poc/internal/shared" // enums + parsers (Ability, Element, ParseAbility/ParseElement, *Strings)  // <-- from abilities.go/types.go
+	"battle_chess_poc/internal/httpx" // your HTTP server wrapper exposing Listen(engine) or similar
 )
 
 func main() {
@@ -34,15 +34,15 @@ func main() {
 		ba, err := parseAbilitiesCSV(*bAbils)
 		fatalIf(err, "black abilities")
 
-		we, ok := shared.ParseElement(*wElem)
-		fatalIfBool(!ok, fmt.Errorf("invalid white element %q; valid: %v", *wElem, shared.ElementStrings()))
-		be, ok := shared.ParseElement(*bElem)
-		fatalIfBool(!ok, fmt.Errorf("invalid black element %q; valid: %v", *bElem, shared.ElementStrings()))
+		we, ok := game.ParseElement(*wElem)
+		fatalIfBool(!ok, fmt.Errorf("invalid white element %q; valid: %v", *wElem, game.ElementStrings()))
+		be, ok := game.ParseElement(*bElem)
+		fatalIfBool(!ok, fmt.Errorf("invalid black element %q; valid: %v", *bElem, game.ElementStrings()))
 
-		if err := eng.SetSideConfig(shared.White, wa, we); err != nil {
+		if err := eng.SetSideConfig(game.White, wa, we); err != nil {
 			log.Fatalf("config white: %v", err)
 		}
-		if err := eng.SetSideConfig(shared.Black, ba, be); err != nil {
+		if err := eng.SetSideConfig(game.Black, ba, be); err != nil {
 			log.Fatalf("config black: %v", err)
 		}
 		log.Printf("Preconfig ON: White[%v,%s] Black[%v,%s]", wa.Strings(), we, ba.Strings(), be)
@@ -58,17 +58,17 @@ func main() {
 	}
 }
 
-func parseAbilitiesCSV(s string) (shared.AbilityList, error) {
+func parseAbilitiesCSV(s string) (game.AbilityList, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return nil, fmt.Errorf("empty ability list")
 	}
 	parts := strings.Split(s, ",")
-	out := make(shared.AbilityList, 0, len(parts))
+	out := make(game.AbilityList, 0, len(parts))
 	for _, p := range parts {
-		a, ok := shared.ParseAbility(strings.TrimSpace(p))
+		a, ok := game.ParseAbility(strings.TrimSpace(p))
 		if !ok {
-			return nil, fmt.Errorf("invalid ability %q; valid: %v", p, shared.AbilityStrings()) // abilities list from your shared pkg. :contentReference[oaicite:2]{index=2}
+			return nil, fmt.Errorf("invalid ability %q; valid: %v", p, game.AbilityStrings()) // abilities list from your game pkg. :contentReference[oaicite:2]{index=2}
 		}
 		out = append(out, a)
 	}

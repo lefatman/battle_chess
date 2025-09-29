@@ -4,8 +4,6 @@ package game
 import (
 	"errors"
 	"fmt"
-
-	"battle_chess_poc/internal/shared"
 )
 
 func (e *Engine) trySideStepNudge(pc *Piece, from, to Square) (bool, error) {
@@ -356,8 +354,8 @@ func (e *Engine) logDirectionChange(pc *Piece, segmentStep int) {
 	prevStart := e.currentMove.Path[last-2]
 	prevEnd := e.currentMove.Path[last-1]
 	currentEnd := e.currentMove.Path[last]
-	prevDir := shared.DirectionOf(prevStart, prevEnd)
-	currentDir := shared.DirectionOf(prevEnd, currentEnd)
+	prevDir := DirectionOf(prevStart, prevEnd)
+	currentDir := DirectionOf(prevEnd, currentEnd)
 	if prevDir == DirNone || currentDir == DirNone || prevDir == currentDir {
 		return
 	}
@@ -380,8 +378,8 @@ func (e *Engine) wouldChangeDirection(move *MoveState, from, to Square) bool {
 		return false
 	}
 	prevFrom := move.Path[len(move.Path)-2]
-	prevDir := shared.DirectionOf(prevFrom, from)
-	currentDir := shared.DirectionOf(from, to)
+	prevDir := DirectionOf(prevFrom, from)
+	currentDir := DirectionOf(from, to)
 	if prevDir == DirNone || currentDir == DirNone {
 		return false
 	}
@@ -406,8 +404,8 @@ func (e *Engine) hasBlazeRushOption(pc *Piece) bool {
 }
 
 func (e *Engine) blazeRushSegmentOk(prevStart, prevEnd, from, to Square) bool {
-	prevDir := shared.DirectionOf(prevStart, prevEnd)
-	currentDir := shared.DirectionOf(from, to)
+	prevDir := DirectionOf(prevStart, prevEnd)
+	currentDir := DirectionOf(from, to)
 	if prevDir == DirNone || currentDir == DirNone || prevDir != currentDir {
 		return false
 	}
@@ -415,7 +413,7 @@ func (e *Engine) blazeRushSegmentOk(prevStart, prevEnd, from, to Square) bool {
 	if steps == 0 || steps > 2 {
 		return false
 	}
-	for _, sq := range shared.Line(from, to) {
+	for _, sq := range Line(from, to) {
 		if e.board.pieceAt[sq] != nil {
 			return false
 		}
@@ -442,13 +440,13 @@ func (e *Engine) blazeRushContinuationAvailable(pc *Piece) bool {
 	}
 	prevFrom := e.currentMove.Path[len(e.currentMove.Path)-2]
 	prevTo := e.currentMove.Path[len(e.currentMove.Path)-1]
-	dr, df, ok := directionStep(shared.DirectionOf(prevFrom, prevTo))
+	dr, df, ok := directionStep(DirectionOf(prevFrom, prevTo))
 	if !ok {
 		return false
 	}
 	nextRank := prevTo.Rank() + dr
 	nextFile := prevTo.File() + df
-	if sq, valid := shared.SquareFromCoords(nextRank, nextFile); valid {
+	if sq, valid := SquareFromCoords(nextRank, nextFile); valid {
 		if e.board.pieceAt[sq] == nil {
 			return true
 		}
@@ -475,7 +473,7 @@ func (e *Engine) floodWakeContinuationAvailable(pc *Piece) bool {
 	for _, off := range offsets {
 		rank := pc.Square.Rank() + off.dr
 		file := pc.Square.File() + off.df
-		if sq, valid := shared.SquareFromCoords(rank, file); valid {
+		if sq, valid := SquareFromCoords(rank, file); valid {
 			if e.board.pieceAt[sq] == nil {
 				return true
 			}

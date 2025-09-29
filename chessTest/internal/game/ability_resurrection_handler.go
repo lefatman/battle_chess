@@ -1,6 +1,5 @@
+// path: chessTest/internal/game/ability_resurrection_handler.go
 package game
-
-import "battle_chess_poc/internal/shared"
 
 // NewResurrectionHandler constructs the default Resurrection ability handler.
 func NewResurrectionHandler() AbilityHandler { return &resurrectionHandler{} }
@@ -78,7 +77,7 @@ func (resurrectionHandler) AddResurrectionCaptureWindow(ctx ResurrectionContext,
 	rank := from.Rank()
 	file := from.File()
 	for _, dr := range []int{-1, 1} {
-		if target, ok := shared.SquareFromCoords(rank+dr, file); ok {
+		if target, ok := SquareFromCoords(rank+dr, file); ok {
 			occupant := ctx.Engine.board.pieceAt[target]
 			if occupant != nil && occupant.Color != ctx.Piece.Color && ctx.Engine.canDirectCapture(ctx.Piece, occupant, from, target) {
 				moves = moves.Add(target)

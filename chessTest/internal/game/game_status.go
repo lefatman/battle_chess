@@ -1,8 +1,6 @@
 // path: chessTest/internal/game/game_status.go
 package game
 
-import "battle_chess_poc/internal/shared"
-
 func (e *Engine) findKingSquare(color Color) (Square, bool) {
 	for idx, pc := range e.board.pieceAt {
 		if pc != nil && pc.Color == color && pc.Type == King {
@@ -22,7 +20,7 @@ func (e *Engine) isSquareAttackedBy(color Color, target Square) bool {
 			atkRank := attacker.Square.Rank()
 			atkFile := attacker.Square.File()
 			for _, delta := range kingOffsets {
-				if sq, ok := shared.SquareFromCoords(atkRank+delta.dr, atkFile+delta.df); ok && sq == target {
+				if sq, ok := SquareFromCoords(atkRank+delta.dr, atkFile+delta.df); ok && sq == target {
 					if e.canDirectCapture(attacker, defender, attacker.Square, target) {
 						return true
 					}
