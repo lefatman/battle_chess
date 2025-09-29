@@ -7,6 +7,12 @@ import (
 	"testing"
 )
 
+func init() {
+	RegisterAbilityFactory(func(Ability) (AbilityHandler, error) {
+		return nil, ErrAbilityNotRegistered
+	})
+}
+
 func TestSliderOpeningMovesDoNotPanic(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -979,7 +985,7 @@ func TestBelligerentDoesNotIncreaseStepBudget(t *testing.T) {
 	eng.board.turn = White
 
 	pc := eng.board.pieceAt[start]
-	if steps := eng.calculateStepBudget(pc); steps != 1 {
+	if steps := eng.baseStepBudget(pc); steps != 1 {
 		t.Fatalf("expected belligerent to leave step budget at 1, got %d", steps)
 	}
 
@@ -1047,7 +1053,7 @@ func TestResurrectionCaptureWindowExpires(t *testing.T) {
 	eng.placePiece(Black, Queen, blocked)
 	eng.board.turn = White
 
-	if steps := eng.calculateStepBudget(eng.board.pieceAt[start]); steps < 3 {
+	if steps := eng.baseStepBudget(eng.board.pieceAt[start]); steps < 3 {
 		t.Fatalf("expected at least 3 steps with buffs, got %d", steps)
 	}
 	if eng.abilities[Black.Index()].Contains(AbilityDoOver) {

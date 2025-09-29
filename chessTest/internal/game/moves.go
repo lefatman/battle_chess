@@ -20,6 +20,7 @@ type MoveState struct {
 	LastSegmentCaptured bool
 	Promotion           PieceType
 	PromotionSet        bool
+	Handlers            map[Ability][]AbilityHandler
 }
 
 // AbilityRuntime captures mutable per-ability state for the duration of a move.
@@ -180,6 +181,163 @@ func (ms *MoveState) addAbilityCounter(id Ability, key string, delta int) int {
 	return ms.abilityRuntime(id).addCounter(key, delta)
 }
 
+func (ms *MoveState) handlersFor(id Ability) []AbilityHandler {
+	if ms == nil || len(ms.Handlers) == 0 {
+		return nil
+	}
+	return ms.Handlers[id]
+}
+
+func (e *Engine) resetAbilityHandlers() {
+	if e.abilityHandlers == nil {
+		return
+	}
+	for key := range e.abilityHandlers {
+		delete(e.abilityHandlers, key)
+	}
+}
+
+func (e *Engine) instantiateAbilityHandlers(pc *Piece) (map[Ability][]AbilityHandler, error) {
+	e.resetAbilityHandlers()
+	if pc == nil || len(pc.Abilities) == 0 {
+		return nil, nil
+	}
+
+	var handlers map[Ability][]AbilityHandler
+	for _, ability := range pc.Abilities {
+		if ability == AbilityNone {
+			continue
+		}
+
+		handler, err := resolveAbilityHandler(ability)
+		if err != nil {
+			if errors.Is(err, ErrAbilityNotRegistered) {
+				continue
+			}
+			if errors.Is(err, ErrAbilityFactoryNotConfigured) {
+				return nil, err
+			}
+			return nil, err
+		}
+		if handler == nil {
+			continue
+		}
+		if handlers == nil {
+			handlers = make(map[Ability][]AbilityHandler)
+		}
+		handlers[ability] = append(handlers[ability], handler)
+	}
+
+	if len(handlers) == 0 {
+		e.abilityHandlers = nil
+		return nil, nil
+	}
+
+	e.abilityHandlers = handlers
+	return handlers, nil
+}
+
+func (e *Engine) activeHandlers() map[Ability][]AbilityHandler {
+	if e.currentMove != nil && len(e.currentMove.Handlers) > 0 {
+		return e.currentMove.Handlers
+	}
+	return e.abilityHandlers
+}
+
+func (e *Engine) handlersForAbility(id Ability) []AbilityHandler {
+	if e.currentMove != nil {
+		if handlers := e.currentMove.handlersFor(id); len(handlers) > 0 {
+			return handlers
+		}
+	}
+	if e.abilityHandlers != nil {
+		return e.abilityHandlers[id]
+	}
+	return nil
+}
+
+func (e *Engine) forEachHandler(handlerMap map[Ability][]AbilityHandler, fn func(Ability, AbilityHandler) error) error {
+	if len(handlerMap) == 0 {
+		return nil
+	}
+	for ability, handlers := range handlerMap {
+		for _, handler := range handlers {
+			if handler == nil {
+				continue
+			}
+			if err := fn(ability, handler); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (e *Engine) forEachActiveHandler(fn func(Ability, AbilityHandler) error) error {
+	return e.forEachHandler(e.activeHandlers(), fn)
+}
+
+func (e *Engine) dispatchMoveStartHandlers(req MoveRequest, meta SegmentMetadata) error {
+	if e.currentMove == nil {
+		return nil
+	}
+	ctx := &e.abilityCtx.move
+	*ctx = MoveLifecycleContext{
+		Engine:  e,
+		Move:    e.currentMove,
+		Request: req,
+		Segment: meta,
+	}
+	defer func() {
+		e.abilityCtx.move = MoveLifecycleContext{}
+	}()
+	return e.forEachActiveHandler(func(_ Ability, handler AbilityHandler) error {
+		return handler.OnMoveStart(*ctx)
+	})
+}
+
+func (e *Engine) dispatchSegmentStartHandlers(from, to Square, meta SegmentMetadata, step int) error {
+	if e.currentMove == nil {
+		return nil
+	}
+	ctx := &e.abilityCtx.segment
+	*ctx = SegmentContext{
+		Engine:      e,
+		Move:        e.currentMove,
+		From:        from,
+		To:          to,
+		Segment:     meta,
+		SegmentStep: step,
+	}
+	defer func() {
+		e.abilityCtx.segment = SegmentContext{}
+	}()
+	return e.forEachActiveHandler(func(_ Ability, handler AbilityHandler) error {
+		return handler.OnSegmentStart(*ctx)
+	})
+}
+
+func (e *Engine) dispatchCaptureHandlers(attacker, victim *Piece, square Square, step int) error {
+	if e.currentMove == nil || victim == nil {
+		return nil
+	}
+	ctx := &e.abilityCtx.capture
+	*ctx = CaptureContext{
+		Engine:        e,
+		Move:          e.currentMove,
+		Attacker:      attacker,
+		Victim:        victim,
+		CaptureSquare: square,
+		SegmentStep:   step,
+	}
+	defer func() {
+		e.abilityCtx.capture = CaptureContext{}
+	}()
+	return e.forEachActiveHandler(func(_ Ability, handler AbilityHandler) error {
+		return handler.OnCapture(*ctx)
+	})
+}
+
 func newAbilityRuntimeMap(abilities AbilityList) map[Ability]*AbilityRuntime {
 	if len(abilities) == 0 {
 		return nil
@@ -260,7 +418,7 @@ func boolToInt(v bool) int {
 
 func (e *Engine) calculateMaxCaptures(pc *Piece) int {
 	maxCaptures := 1 // Base capture limit
-	if pc != nil && pc.Abilities.Contains(AbilityChainKill) {
+	if len(e.handlersForAbility(AbilityChainKill)) == 0 && pc != nil && pc.Abilities.Contains(AbilityChainKill) {
 		maxCaptures += 2 // Chain Kill allows 2 additional captures
 	}
 	return maxCaptures
@@ -287,6 +445,11 @@ func (e *Engine) startNewMove(req MoveRequest) error {
 	}
 	if pc.Color != e.board.turn {
 		return errors.New("not your turn")
+	}
+
+	handlers, err := e.instantiateAbilityHandlers(pc)
+	if err != nil {
+		return err
 	}
 
 	target := e.board.pieceAt[to]
@@ -332,7 +495,10 @@ func (e *Engine) startNewMove(req MoveRequest) error {
 	}
 
 	// Calculate the total step budget for this turn.
-	totalSteps := e.calculateStepBudget(pc)
+	totalSteps, notes, err := e.calculateStepBudget(pc, handlers)
+	if err != nil {
+		return err
+	}
 	firstSegmentCost := e.calculateMovementCost(pc, from, to)
 	remainingSteps := totalSteps - firstSegmentCost
 	if remainingSteps < 0 {
@@ -344,12 +510,13 @@ func (e *Engine) startNewMove(req MoveRequest) error {
 	e.currentMove = &MoveState{
 		Piece:          pc,
 		RemainingSteps: remainingSteps,
-		Path:           []Square{from, to},
+		Path:           []Square{from},
 		Captures:       []*Piece{},
 		AbilityData:    newAbilityRuntimeMap(pc.Abilities),
 		MaxCaptures:    maxCaptures,
 		Promotion:      req.Promotion,
 		PromotionSet:   req.HasPromotion,
+		Handlers:       handlers,
 	}
 
 	e.currentMove.setAbilityCounter(AbilityNone, abilityCounterCaptureLimit, maxCaptures)
@@ -357,6 +524,13 @@ func (e *Engine) startNewMove(req MoveRequest) error {
 	e.currentMove.setAbilityCounter(AbilityNone, abilityCounterCaptureSegment, -1)
 	e.currentMove.setAbilityCounter(AbilityNone, abilityCounterCaptureSquare, -1)
 	e.currentMove.setAbilityCounter(AbilityNone, abilityCounterCaptureEnPassant, 0)
+
+	for _, note := range notes {
+		if note == "" {
+			continue
+		}
+		appendAbilityNote(&e.board.lastNote, note)
+	}
 
 	// The move is now valid, push the state before executing.
 	delta := e.pushHistory()
@@ -367,12 +541,32 @@ func (e *Engine) startNewMove(req MoveRequest) error {
 	if segmentCtx.capture != nil {
 		e.recordSquareForUndo(segmentCtx.captureSquare)
 	}
+	segmentStep := len(e.currentMove.Path) - 1
+	if segmentStep < 0 {
+		segmentStep = 0
+	}
+	if err := e.dispatchMoveStartHandlers(req, segmentCtx.metadata()); err != nil {
+		e.currentMove = nil
+		e.abilityCtx.clear()
+		return err
+	}
+	if err := e.dispatchSegmentStartHandlers(from, to, segmentCtx.metadata(), segmentStep); err != nil {
+		e.currentMove = nil
+		e.abilityCtx.clear()
+		return err
+	}
 	e.executeMoveSegment(from, to, segmentCtx)
+	e.currentMove.Path = append(e.currentMove.Path, to)
 	e.handlePostSegment(pc, from, to, segmentCtx.capture)
 
 	// Handle capture abilities if a piece was taken.
 	if segmentCtx.capture != nil {
 		e.currentMove.registerCapture(segmentCtx.metadata())
+		if err := e.dispatchCaptureHandlers(pc, segmentCtx.capture, segmentCtx.captureSquare, segmentStep); err != nil {
+			e.currentMove = nil
+			e.abilityCtx.clear()
+			return err
+		}
 		if err := e.ResolveCaptureAbility(pc, segmentCtx.capture, segmentCtx.captureSquare); err != nil {
 			// If DoOver was triggered, the state is already rewound. Abort.
 			e.currentMove = nil // Clear the invalid move state
@@ -495,12 +689,26 @@ func (e *Engine) continueMove(req MoveRequest) error {
 		e.recordSquareForUndo(segmentCtx.captureSquare)
 	}
 	e.currentMove.RemainingSteps -= stepsNeeded
+	segmentStep := len(e.currentMove.Path) - 1
+	if segmentStep < 0 {
+		segmentStep = 0
+	}
+	if err := e.dispatchSegmentStartHandlers(from, to, segmentCtx.metadata(), segmentStep); err != nil {
+		e.currentMove = nil
+		e.abilityCtx.clear()
+		return err
+	}
 	e.executeMoveSegment(from, to, segmentCtx)
 	e.currentMove.Path = append(e.currentMove.Path, to)
 	e.handlePostSegment(pc, from, to, segmentCtx.capture)
 
 	if segmentCtx.capture != nil {
 		e.currentMove.registerCapture(segmentCtx.metadata())
+		if err := e.dispatchCaptureHandlers(pc, segmentCtx.capture, segmentCtx.captureSquare, segmentStep); err != nil {
+			e.currentMove = nil
+			e.abilityCtx.clear()
+			return err
+		}
 		if err := e.ResolveCaptureAbility(pc, segmentCtx.capture, segmentCtx.captureSquare); err != nil {
 			e.currentMove = nil
 			e.abilityCtx.clear()
@@ -548,6 +756,15 @@ func (e *Engine) trySideStepNudge(pc *Piece, from, to Square) (bool, error) {
 	e.currentMove.markAbilityUsed(AbilitySideStep)
 
 	segmentCtx := moveSegmentContext{}
+	segmentStep := len(e.currentMove.Path) - 1
+	if segmentStep < 0 {
+		segmentStep = 0
+	}
+	if err := e.dispatchSegmentStartHandlers(from, to, segmentCtx.metadata(), segmentStep); err != nil {
+		e.currentMove = nil
+		e.abilityCtx.clear()
+		return true, err
+	}
 	e.executeMoveSegment(from, to, segmentCtx)
 	e.currentMove.Path = append(e.currentMove.Path, to)
 	e.handlePostSegment(pc, from, to, nil)
@@ -600,8 +817,18 @@ func (e *Engine) tryQuantumStep(pc *Piece, from, to Square) (bool, error) {
 		e.currentMove.setAbilityCounter(AbilityResurrection, abilityFlagWindow, 0)
 	}
 
+	segmentStep := len(e.currentMove.Path) - 1
+	if segmentStep < 0 {
+		segmentStep = 0
+	}
+	segmentCtx := moveSegmentContext{}
+	if err := e.dispatchSegmentStartHandlers(from, to, segmentCtx.metadata(), segmentStep); err != nil {
+		e.currentMove = nil
+		e.abilityCtx.clear()
+		return true, err
+	}
 	if ally == nil {
-		e.executeMoveSegment(from, to, moveSegmentContext{})
+		e.executeMoveSegment(from, to, segmentCtx)
 		appendAbilityNote(&e.board.lastNote, "Quantum Step blink (cost 1 step)")
 	} else {
 		e.performQuantumSwap(pc, ally, from, to)
@@ -731,6 +958,7 @@ func (e *Engine) endTurn() {
 	// Clear the current move state, officially ending the turn.
 	e.currentMove = nil
 	e.abilityCtx.clear()
+	e.resetAbilityHandlers()
 }
 
 func (e *Engine) applyTemporalLockSlow(pc *Piece) {
@@ -751,8 +979,8 @@ func (e *Engine) applyTemporalLockSlow(pc *Piece) {
 // Step & Cost Calculation
 // ---------------------------
 
-// calculateStepBudget calculates the total number of steps a piece gets for its turn.
-func (e *Engine) calculateStepBudget(pc *Piece) int {
+// baseStepBudget calculates the total number of steps a piece gets for its turn without handler overrides.
+func (e *Engine) baseStepBudget(pc *Piece) int {
 	baseSteps := 1 // Every piece gets at least one step.
 	bonus := 0
 	element := elementOf(e, pc)
@@ -795,6 +1023,41 @@ func (e *Engine) calculateStepBudget(pc *Piece) int {
 		return 1 // A piece always gets at least 1 step.
 	}
 	return totalSteps
+}
+
+func (e *Engine) calculateStepBudget(pc *Piece, handlers map[Ability][]AbilityHandler) (int, []string, error) {
+	total := e.baseStepBudget(pc)
+	if len(handlers) == 0 {
+		return total, nil, nil
+	}
+
+	ctx := &e.abilityCtx.stepBudget
+	*ctx = StepBudgetContext{Engine: e, Piece: pc}
+	defer func() {
+		e.abilityCtx.stepBudget = StepBudgetContext{}
+	}()
+
+	var notes []string
+	for _, handlerList := range handlers {
+		for _, handler := range handlerList {
+			if handler == nil {
+				continue
+			}
+			delta, err := handler.StepBudgetModifier(*ctx)
+			if err != nil {
+				return 0, nil, err
+			}
+			total += delta.AddSteps
+			if len(delta.Notes) > 0 {
+				notes = append(notes, delta.Notes...)
+			}
+		}
+	}
+
+	if total < 1 {
+		total = 1
+	}
+	return total, notes, nil
 }
 
 // calculateMovementCost calculates the step cost for a given move segment.
@@ -895,12 +1158,12 @@ func (e *Engine) handlePostSegment(pc *Piece, from, to Square, target *Piece) {
 
 	e.currentMove.LastSegmentCaptured = target != nil
 
-	if e.isFloodWakePushAvailable(pc, from, to, target) {
+	if len(e.handlersForAbility(AbilityFloodWake)) == 0 && e.isFloodWakePushAvailable(pc, from, to, target) {
 		e.currentMove.markAbilityUsed(AbilityFloodWake)
 		appendAbilityNote(&e.board.lastNote, "Flood Wake push (free)")
 	}
 
-	if e.isBlazeRushDash(pc, from, to, target) {
+	if len(e.handlersForAbility(AbilityBlazeRush)) == 0 && e.isBlazeRushDash(pc, from, to, target) {
 		e.currentMove.markAbilityUsed(AbilityBlazeRush)
 		appendAbilityNote(&e.board.lastNote, "Blaze Rush dash (free)")
 	}
@@ -949,6 +1212,9 @@ func (e *Engine) hasFreeContinuation(pc *Piece) bool {
 }
 
 func (e *Engine) hasBlazeRushOption(pc *Piece) bool {
+	if len(e.handlersForAbility(AbilityBlazeRush)) > 0 {
+		return false
+	}
 	if pc == nil || !pc.Abilities.Contains(AbilityBlazeRush) {
 		return false
 	}
@@ -996,6 +1262,9 @@ func (e *Engine) blazeRushSegmentOk(prevStart, prevEnd, from, to Square) bool {
 }
 
 func (e *Engine) hasFloodWakePushOption(pc *Piece) bool {
+	if len(e.handlersForAbility(AbilityFloodWake)) > 0 {
+		return false
+	}
 	if pc == nil || !pc.Abilities.Contains(AbilityFloodWake) {
 		return false
 	}
@@ -1314,7 +1583,7 @@ func (e *Engine) isLegalFirstSegment(pc *Piece, from, to Square) bool {
 func (e *Engine) isLegalContinuation(pc *Piece, from, to Square) bool {
 	// For Chain Kill, any legal move is a valid continuation to another capture.
 	target := e.board.pieceAt[to]
-	if pc.Abilities.Contains(AbilityChainKill) && target != nil && target.Color != pc.Color {
+	if len(e.handlersForAbility(AbilityChainKill)) == 0 && pc.Abilities.Contains(AbilityChainKill) && target != nil && target.Color != pc.Color {
 		return e.isLegalFirstSegment(pc, from, to)
 	}
 
