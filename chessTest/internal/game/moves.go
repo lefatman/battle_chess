@@ -228,6 +228,25 @@ func (e *Engine) instantiateAbilityHandlers(pc *Piece) (map[Ability][]AbilityHan
 		handlers[ability] = append(handlers[ability], handler)
 	}
 
+	ensureHandlers := func() {
+		if handlers == nil {
+			handlers = make(map[Ability][]AbilityHandler)
+		}
+	}
+
+	if pc.Abilities.Contains(AbilityBlazeRush) && len(handlers[AbilityBlazeRush]) == 0 {
+		ensureHandlers()
+		handlers[AbilityBlazeRush] = append(handlers[AbilityBlazeRush], newBlazeRushFallbackHandler())
+	}
+	if pc.Abilities.Contains(AbilityFloodWake) && len(handlers[AbilityFloodWake]) == 0 {
+		ensureHandlers()
+		handlers[AbilityFloodWake] = append(handlers[AbilityFloodWake], newFloodWakeFallbackHandler())
+	}
+	if pc.Abilities.Contains(AbilityMistShroud) && len(handlers[AbilityMistShroud]) == 0 {
+		ensureHandlers()
+		handlers[AbilityMistShroud] = append(handlers[AbilityMistShroud], newMistShroudFallbackHandler())
+	}
+
 	if len(handlers) == 0 {
 		e.abilityHandlers = nil
 		return nil, nil
@@ -377,6 +396,91 @@ func (e *Engine) dispatchSegmentResolvedHandlers(from, to Square, meta SegmentMe
 		}
 		return resolver.OnSegmentResolved(*ctx)
 	})
+}
+
+func (e *Engine) dispatchPostSegmentHandlers(pc *Piece, from, to Square, meta SegmentMetadata, step int) error {
+	if e.currentMove == nil {
+		return nil
+	}
+	ctx := &e.abilityCtx.postSegment
+	*ctx = PostSegmentContext{
+		Engine:      e,
+		Move:        e.currentMove,
+		Piece:       pc,
+		From:        from,
+		To:          to,
+		Segment:     meta,
+		SegmentStep: step,
+	}
+	defer func() {
+		e.abilityCtx.postSegment = PostSegmentContext{}
+	}()
+	return e.forEachActiveHandler(func(_ Ability, handler AbilityHandler) error {
+		return handler.OnPostSegment(*ctx)
+	})
+}
+
+func (e *Engine) dispatchDirectionChangeHandlers(pc *Piece, prevStart, prevEnd, currentEnd Square, prevDir, currentDir Direction, step int) bool {
+	if e.currentMove == nil {
+		return false
+	}
+	ctx := &e.abilityCtx.direction
+	*ctx = DirectionChangeContext{
+		Engine:            e,
+		Move:              e.currentMove,
+		Piece:             pc,
+		PreviousStart:     prevStart,
+		PreviousEnd:       prevEnd,
+		CurrentEnd:        currentEnd,
+		PreviousDirection: prevDir,
+		CurrentDirection:  currentDir,
+		SegmentStep:       step,
+	}
+	defer func() {
+		e.abilityCtx.direction = DirectionChangeContext{}
+	}()
+	handled := false
+	_ = e.forEachActiveHandler(func(_ Ability, handler AbilityHandler) error {
+		dc, ok := handler.(DirectionChangeHandler)
+		if !ok {
+			return nil
+		}
+		if dc.OnDirectionChange(*ctx) {
+			handled = true
+		}
+		return nil
+	})
+	return handled
+}
+
+func (e *Engine) dispatchFreeContinuationHandlers(id Ability, pc *Piece) bool {
+	if len(e.handlersForAbility(id)) == 0 {
+		return false
+	}
+	ctx := &e.abilityCtx.continuation
+	*ctx = FreeContinuationContext{
+		Engine:  e,
+		Move:    e.currentMove,
+		Piece:   pc,
+		Ability: id,
+	}
+	defer func() {
+		e.abilityCtx.continuation = FreeContinuationContext{}
+	}()
+	available := false
+	for _, handler := range e.handlersForAbility(id) {
+		if handler == nil {
+			continue
+		}
+		fc, ok := handler.(FreeContinuationHandler)
+		if !ok {
+			continue
+		}
+		if fc.FreeContinuationAvailable(*ctx) {
+			available = true
+		}
+	}
+	return available
 }
 
 func (e *Engine) dispatchCaptureHandlers(attacker, victim *Piece, square Square, step int) error {
@@ -619,7 +723,11 @@ func (e *Engine) startNewMove(req MoveRequest) error {
 	}
 	e.executeMoveSegment(from, to, segmentCtx)
 	e.currentMove.Path = append(e.currentMove.Path, to)
-	e.handlePostSegment(pc, from, to, segmentCtx.capture)
+	if err := e.handlePostSegment(pc, from, to, segmentCtx.metadata()); err != nil {
+		e.currentMove = nil
+		e.abilityCtx.clear()
+		return err
+	}
 
 	// Handle capture abilities if a piece was taken.
 	if segmentCtx.capture != nil {
@@ -770,7 +878,11 @@ func (e *Engine) continueMove(req MoveRequest) error {
 	}
 	e.executeMoveSegment(from, to, segmentCtx)
 	e.currentMove.Path = append(e.currentMove.Path, to)
-	e.handlePostSegment(pc, from, to, segmentCtx.capture)
+	if err := e.handlePostSegment(pc, from, to, segmentCtx.metadata()); err != nil {
+		e.currentMove = nil
+		e.abilityCtx.clear()
+		return err
+	}
 	if err := e.dispatchSegmentResolvedHandlers(from, to, meta, segmentStep, stepsNeeded); err != nil {
 		e.currentMove = nil
 		e.abilityCtx.clear()
@@ -895,7 +1007,11 @@ func (e *Engine) trySideStepNudge(pc *Piece, from, to Square) (bool, error) {
 	}
 	e.executeMoveSegment(from, to, segmentCtx)
 	e.currentMove.Path = append(e.currentMove.Path, to)
-	e.handlePostSegment(pc, from, to, nil)
+	if err := e.handlePostSegment(pc, from, to, segmentCtx.metadata()); err != nil {
+		e.currentMove = nil
+		e.abilityCtx.clear()
+		return true, err
+	}
 
 	if err := e.dispatchSegmentResolvedHandlers(from, to, segmentCtx.metadata(), segmentStep, 1); err != nil {
 		e.currentMove = nil
@@ -1010,7 +1126,11 @@ func (e *Engine) tryQuantumStep(pc *Piece, from, to Square) (bool, error) {
 	}
 
 	e.currentMove.Path = append(e.currentMove.Path, to)
-	e.handlePostSegment(pc, from, to, nil)
+	if err := e.handlePostSegment(pc, from, to, segmentCtx.metadata()); err != nil {
+		e.currentMove = nil
+		e.abilityCtx.clear()
+		return true, err
+	}
 
 	if err := e.dispatchSegmentResolvedHandlers(from, to, segmentCtx.metadata(), segmentStep, 1); err != nil {
 		e.currentMove = nil
@@ -1098,7 +1218,11 @@ func (e *Engine) executeSpecialMovePlan(pc *Piece, from, to Square, plan Special
 	}
 
 	e.currentMove.Path = append(e.currentMove.Path, to)
-	e.handlePostSegment(pc, from, to, plan.Metadata.Capture)
+	if err := e.handlePostSegment(pc, from, to, meta); err != nil {
+		e.currentMove = nil
+		e.abilityCtx.clear()
+		return err
+	}
 
 	if err := e.dispatchSegmentResolvedHandlers(from, to, meta, segmentStep, stepsNeeded); err != nil {
 		e.currentMove = nil
@@ -1440,27 +1564,27 @@ func (e *Engine) isBlazeRushDash(pc *Piece, from, to Square, target *Piece) bool
 	return true
 }
 
-func (e *Engine) handlePostSegment(pc *Piece, from, to Square, target *Piece) {
+func (e *Engine) handlePostSegment(pc *Piece, from, to Square, meta SegmentMetadata) error {
 	if e.currentMove == nil {
-		return
+		return nil
 	}
 
-	e.currentMove.LastSegmentCaptured = target != nil
+	e.currentMove.LastSegmentCaptured = meta.Capture != nil
 
-	if len(e.handlersForAbility(AbilityFloodWake)) == 0 && e.isFloodWakePushAvailable(pc, from, to, target) {
-		e.currentMove.markAbilityUsed(AbilityFloodWake)
-		appendAbilityNote(&e.board.lastNote, "Flood Wake push (free)")
+	step := len(e.currentMove.Path) - 1
+	if step < 0 {
+		step = 0
 	}
 
-	if len(e.handlersForAbility(AbilityBlazeRush)) == 0 && e.isBlazeRushDash(pc, from, to, target) {
-		e.currentMove.markAbilityUsed(AbilityBlazeRush)
-		appendAbilityNote(&e.board.lastNote, "Blaze Rush dash (free)")
+	if err := e.dispatchPostSegmentHandlers(pc, from, to, meta, step); err != nil {
+		return err
 	}
 
-	e.logDirectionChange(pc)
+	e.logDirectionChange(pc, step)
+	return nil
 }
 
-func (e *Engine) logDirectionChange(pc *Piece) {
+func (e *Engine) logDirectionChange(pc *Piece, segmentStep int) {
 	if e.currentMove == nil || !e.isSlider(pc.Type) {
 		return
 	}
@@ -1478,9 +1602,7 @@ func (e *Engine) logDirectionChange(pc *Piece) {
 		return
 	}
 
-	if pc.Abilities.Contains(AbilityMistShroud) && e.currentMove.abilityCounter(AbilityMistShroud, abilityCounterFree) == 0 {
-		e.currentMove.addAbilityCounter(AbilityMistShroud, abilityCounterFree, 1)
-		appendAbilityNote(&e.board.lastNote, "Mist Shroud free pivot")
+	if e.dispatchDirectionChangeHandlers(pc, prevStart, prevEnd, currentEnd, prevDir, currentDir, segmentStep) {
 		return
 	}
 
@@ -1501,9 +1623,32 @@ func (e *Engine) hasFreeContinuation(pc *Piece) bool {
 }
 
 func (e *Engine) hasBlazeRushOption(pc *Piece) bool {
-	if len(e.handlersForAbility(AbilityBlazeRush)) > 0 {
+	return e.dispatchFreeContinuationHandlers(AbilityBlazeRush, pc)
+}
+
+func (e *Engine) blazeRushSegmentOk(prevStart, prevEnd, from, to Square) bool {
+	prevDir := shared.DirectionOf(prevStart, prevEnd)
+	currentDir := shared.DirectionOf(from, to)
+	if prevDir == DirNone || currentDir == DirNone || prevDir != currentDir {
 		return false
 	}
+	steps := maxInt(absInt(to.Rank()-from.Rank()), absInt(to.File()-from.File()))
+	if steps == 0 || steps > 2 {
+		return false
+	}
+	for _, sq := range shared.Line(from, to) {
+		if e.board.pieceAt[sq] != nil {
+			return false
+		}
+	}
+	return true
+}
+
+func (e *Engine) hasFloodWakePushOption(pc *Piece) bool {
+	return e.dispatchFreeContinuationHandlers(AbilityFloodWake, pc)
+}
+
+func (e *Engine) blazeRushContinuationAvailable(pc *Piece) bool {
 	if pc == nil || !pc.Abilities.Contains(AbilityBlazeRush) {
 		return false
 	}
@@ -1532,28 +1677,7 @@ func (e *Engine) hasBlazeRushOption(pc *Piece) bool {
 	return false
 }
 
-func (e *Engine) blazeRushSegmentOk(prevStart, prevEnd, from, to Square) bool {
-	prevDir := shared.DirectionOf(prevStart, prevEnd)
-	currentDir := shared.DirectionOf(from, to)
-	if prevDir == DirNone || currentDir == DirNone || prevDir != currentDir {
-		return false
-	}
-	steps := maxInt(absInt(to.Rank()-from.Rank()), absInt(to.File()-from.File()))
-	if steps == 0 || steps > 2 {
-		return false
-	}
-	for _, sq := range shared.Line(from, to) {
-		if e.board.pieceAt[sq] != nil {
-			return false
-		}
-	}
-	return true
-}
-
-func (e *Engine) hasFloodWakePushOption(pc *Piece) bool {
-	if len(e.handlersForAbility(AbilityFloodWake)) > 0 {
-		return false
-	}
+func (e *Engine) floodWakeContinuationAvailable(pc *Piece) bool {
 	if pc == nil || !pc.Abilities.Contains(AbilityFloodWake) {
 		return false
 	}
