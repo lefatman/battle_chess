@@ -1,3 +1,4 @@
+// path: chessTest/internal/game/ability_runtime.go
 package game
 
 import (
@@ -5,6 +6,99 @@ import (
 
 	"battle_chess_poc/internal/shared"
 )
+
+// AbilityRuntime captures mutable per-ability state for the duration of a move.
+// Handlers can store arbitrary flags and counters keyed by semantic labels.
+type AbilityRuntime struct {
+	Flags    map[string]bool
+	Counters map[string]int
+}
+
+// Clone produces a deep copy of the runtime data so history rewinds can
+// restore the per-ability state safely.
+func (ar *AbilityRuntime) Clone() *AbilityRuntime {
+	if ar == nil {
+		return nil
+	}
+	clone := &AbilityRuntime{}
+	if len(ar.Flags) > 0 {
+		clone.Flags = make(map[string]bool, len(ar.Flags))
+		for k, v := range ar.Flags {
+			clone.Flags[k] = v
+		}
+	}
+	if len(ar.Counters) > 0 {
+		clone.Counters = make(map[string]int, len(ar.Counters))
+		for k, v := range ar.Counters {
+			clone.Counters[k] = v
+		}
+	}
+	return clone
+}
+
+func (ar *AbilityRuntime) setFlag(key string, value bool) {
+	if ar == nil {
+		return
+	}
+	if ar.Flags == nil {
+		ar.Flags = make(map[string]bool)
+	}
+	ar.Flags[key] = value
+}
+
+func (ar *AbilityRuntime) flag(key string) bool {
+	if ar == nil || len(ar.Flags) == 0 {
+		return false
+	}
+	return ar.Flags[key]
+}
+
+func (ar *AbilityRuntime) setCounter(key string, value int) {
+	if ar == nil {
+		return
+	}
+	if ar.Counters == nil {
+		ar.Counters = make(map[string]int)
+	}
+	ar.Counters[key] = value
+}
+
+func (ar *AbilityRuntime) addCounter(key string, delta int) int {
+	if ar == nil {
+		return 0
+	}
+	if ar.Counters == nil {
+		ar.Counters = make(map[string]int)
+	}
+	ar.Counters[key] += delta
+	return ar.Counters[key]
+}
+
+func (ar *AbilityRuntime) counter(key string) int {
+	if ar == nil || len(ar.Counters) == 0 {
+		return 0
+	}
+	return ar.Counters[key]
+}
+
+func newAbilityRuntimeMap(abilities AbilityList) map[Ability]*AbilityRuntime {
+	if len(abilities) == 0 {
+		return nil
+	}
+	runtimes := make(map[Ability]*AbilityRuntime, len(abilities))
+	for _, ability := range abilities {
+		if ability == AbilityNone {
+			continue
+		}
+		if _, exists := runtimes[ability]; !exists {
+			runtimes[ability] = &AbilityRuntime{}
+		}
+	}
+	if len(runtimes) == 0 {
+		return nil
+	}
+	return runtimes
+}
 
 // AbilityHandler represents the lifecycle hooks that an ability can implement
 // to integrate with the engine. Handlers may implement any subset of the

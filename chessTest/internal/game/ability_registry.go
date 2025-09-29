@@ -1,3 +1,4 @@
+// path: chessTest/internal/game/ability_registry.go
 package game
 
 import "errors"
