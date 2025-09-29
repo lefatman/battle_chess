@@ -735,7 +735,6 @@ func TestSideStepNudge(t *testing.T) {
 		blackKing := mustSquare(t, "d8")
 		start := mustSquare(t, "e5")
 		first := mustSquare(t, "c4")
-		orth := mustSquare(t, "c3")
 
 		eng.placePiece(White, King, whiteKing)
 		eng.placePiece(Black, King, blackKing)
@@ -745,25 +744,15 @@ func TestSideStepNudge(t *testing.T) {
 		if err := eng.Move(MoveRequest{From: start, To: first, Dir: DirNone}); err != nil {
 			t.Fatalf("first move: %v", err)
 		}
-		if eng.currentMove == nil {
-			t.Fatalf("expected move to remain active after first step")
-		}
-		if got := eng.currentMove.RemainingSteps; got != 1 {
-			t.Fatalf("expected exactly one step remaining before nudge, got %d", got)
-		}
-
-		if err := eng.Move(MoveRequest{From: first, To: orth, Dir: DirNone}); err != nil {
-			t.Fatalf("side step nudge: %v", err)
-		}
 
 		if eng.currentMove != nil {
-			t.Fatalf("expected turn to end once steps were exhausted")
+			t.Fatalf("expected move to end after initial step with no spare budget")
 		}
 		if eng.board.turn != White {
 			t.Fatalf("expected turn to pass to white, got %s", eng.board.turn)
 		}
-		if pc := eng.board.pieceAt[orth]; pc == nil || pc.Color != Black {
-			t.Fatalf("expected black knight to occupy %s", orth.String())
+		if pc := eng.board.pieceAt[first]; pc == nil || pc.Color != Black {
+			t.Fatalf("expected black knight to occupy %s", first.String())
 		}
 	})
 }
@@ -788,6 +777,90 @@ func TestStalwartBlocksLowerRankCapture(t *testing.T) {
 
 	if err := eng.Move(MoveRequest{From: knightSq, To: rookSq, Dir: DirNone}); err == nil {
 		t.Fatalf("expected stalwart to block lower-rank capture")
+	}
+}
+
+func TestBelligerentBlocksHigherRankCapture(t *testing.T) {
+	eng := NewEngine()
+	if err := eng.SetSideConfig(White, AbilityList{AbilitySideStep}, ElementLight); err != nil {
+		t.Fatalf("configure white: %v", err)
+	}
+	if err := eng.SetSideConfig(Black, AbilityList{AbilityBelligerent}, ElementShadow); err != nil {
+		t.Fatalf("configure black: %v", err)
+	}
+
+	clearBoard(eng)
+
+	attackerSq := mustSquare(t, "d4")
+	defenderSq := mustSquare(t, "d6")
+
+	eng.placePiece(White, Queen, attackerSq)
+	eng.placePiece(Black, Rook, defenderSq)
+	eng.board.turn = White
+
+	if err := eng.Move(MoveRequest{From: attackerSq, To: defenderSq, Dir: DirNone}); err == nil {
+		t.Fatalf("expected belligerent to block higher-rank capture")
+	}
+}
+
+func TestBelligerentAllowsEqualRankCapture(t *testing.T) {
+	eng := NewEngine()
+	if err := eng.SetSideConfig(White, AbilityList{AbilitySideStep}, ElementLight); err != nil {
+		t.Fatalf("configure white: %v", err)
+	}
+	if err := eng.SetSideConfig(Black, AbilityList{AbilityBelligerent}, ElementShadow); err != nil {
+		t.Fatalf("configure black: %v", err)
+	}
+
+	clearBoard(eng)
+
+	attackerSq := mustSquare(t, "a1")
+	defenderSq := mustSquare(t, "a6")
+
+	eng.placePiece(White, Rook, attackerSq)
+	eng.placePiece(Black, Rook, defenderSq)
+	eng.board.turn = White
+
+	if err := eng.Move(MoveRequest{From: attackerSq, To: defenderSq, Dir: DirNone}); err != nil {
+		t.Fatalf("expected equal-rank capture to succeed despite belligerent: %v", err)
+	}
+
+	if pc := eng.board.pieceAt[defenderSq]; pc == nil || pc.Color != White || pc.Type != Rook {
+		t.Fatalf("expected white rook to occupy %s after capture", defenderSq.String())
+	}
+}
+
+func TestBelligerentDoesNotIncreaseStepBudget(t *testing.T) {
+	eng := NewEngine()
+	if err := eng.SetSideConfig(White, AbilityList{AbilityBelligerent}, ElementLight); err != nil {
+		t.Fatalf("configure white: %v", err)
+	}
+	if err := eng.SetSideConfig(Black, AbilityList{AbilityStalwart}, ElementShadow); err != nil {
+		t.Fatalf("configure black: %v", err)
+	}
+
+	clearBoard(eng)
+
+	start := mustSquare(t, "d4")
+	dest := mustSquare(t, "d5")
+
+	eng.placePiece(White, Rook, start)
+	eng.board.turn = White
+
+	pc := eng.board.pieceAt[start]
+	if steps := eng.calculateStepBudget(pc); steps != 1 {
+		t.Fatalf("expected belligerent to leave step budget at 1, got %d", steps)
+	}
+
+	if err := eng.Move(MoveRequest{From: start, To: dest, Dir: DirNone}); err != nil {
+		t.Fatalf("move failed: %v", err)
+	}
+
+	if eng.currentMove != nil {
+		t.Fatalf("expected turn to end after single step despite belligerent")
+	}
+	if eng.board.turn != Black {
+		t.Fatalf("expected turn to pass to black after move, got %s", eng.board.turn)
 	}
 }
 
