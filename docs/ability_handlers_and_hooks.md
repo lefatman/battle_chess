@@ -272,6 +272,104 @@ To migrate these mechanics into ability-owned handlers, the refactor will need d
 * **Capture aftermath:** `OnCaptureResolved(attacker, victim, ctx)` combining extra removals, resurrection windows, capture counts, and penalty drains prior to continuation checks. 【F:chessTest/internal/game/moves.go†L174-L199】【F:chessTest/internal/game/ability_resolver.go†L9-L201】
 * **Post-segment toggles:** `OnSegmentResolved(piece, segment, ctx)` updating once-per-turn flags (Flood Wake, Blaze Rush, Mist Shroud) and announcing ability hints for subsequent actions. 【F:chessTest/internal/game/moves.go†L171-L209】【F:chessTest/internal/game/moves.go†L682-L890】
 
+## Ability handler interface proposal
+
+### Interface overview
+
+The shared handler surface consolidates every documented touchpoint into a single contract so each ability can opt into the lifecycle stages it cares about. Hooks return an error so handlers can veto work while surfacing player-facing notes through the provided engine reference.
+
+```go
+type AbilityHandler interface {
+    StepBudgetModifier(ctx StepBudgetContext) (StepBudgetDelta, error)
+    CanPhase(ctx PhaseContext) (bool, error)
+    OnMoveStart(ctx MoveLifecycleContext) error
+    OnSegmentStart(ctx SegmentContext) error
+    OnCapture(ctx CaptureContext) error
+    OnTurnEnd(ctx TurnEndContext) error
+}
+```
+
+Handlers may implement a subset of the surface; the registry will skip nil function pointers so lightweight abilities only override the hooks they need. `StepBudgetModifier` and `CanPhase` mirror the pre-move calculations currently performed in `calculateStepBudget` and `canPhaseThrough`, while `OnMoveStart`, `OnSegmentStart`, `OnCapture`, and `OnTurnEnd` map directly to the move initiation, segment execution, capture aftermath, and turn finalisation steps outlined earlier. 【F:chessTest/internal/game/moves.go†L134-L318】【F:chessTest/internal/game/ability_resolver.go†L9-L201】
+
+### Context structures
+
+Each hook receives a struct that packages the runtime data the existing monolith reads:
+
+```go
+type StepBudgetContext struct {
+    Engine *Engine
+    Piece  *Piece
+    Move   *MoveState // nil before the MoveState is created
+}
+
+type StepBudgetDelta struct {
+    AddSteps int
+    Notes    []string
+}
+
+type PhaseContext struct {
+    Engine *Engine
+    Piece  *Piece
+    From   Square
+    To     Square
+}
+
+type MoveLifecycleContext struct {
+    Engine   *Engine
+    Move     *MoveState
+    Request  MoveRequest
+    Segment  moveSegmentContext
+}
+
+type SegmentContext struct {
+    Engine      *Engine
+    Move        *MoveState
+    From        Square
+    To          Square
+    Segment     moveSegmentContext
+    SegmentStep int // zero-based index within the turn
+}
+
+type CaptureContext struct {
+    Engine        *Engine
+    Move          *MoveState
+    Attacker      *Piece
+    Victim        *Piece
+    CaptureSquare Square
+    SegmentStep   int
+}
+
+type TurnEndContext struct {
+    Engine *Engine
+    Move   *MoveState
+    Reason TurnEndReason
+}
+
+type TurnEndReason int
+
+const (
+    TurnEndNatural TurnEndReason = iota
+    TurnEndForced
+    TurnEndCancelled
+)
+```
+
+The move and segment contexts embed `moveSegmentContext` so ability code can observe En Passant captures and other metadata currently threaded through `executeMoveSegment`. Capture hooks mirror the `registerCapture`/`ResolveCaptureAbility` parameters so Resurrection, Chain Kill, and other aftermath routines can migrate cleanly. 【F:chessTest/internal/game/piece_ops.go†L13-L31】【F:chessTest/internal/game/moves.go†L147-L318】
+
+### Invocation order
+
+1. **Budget pass.** The engine gathers all `StepBudgetModifier` deltas before finalising `RemainingSteps` so every additive and subtractive modifier composes prior to the first segment. This replaces the direct arithmetic inside `calculateStepBudget`. 【F:chessTest/internal/game/moves.go†L134-L160】【F:chessTest/internal/game/moves.go†L545-L588】
+2. **Phasing snapshot.** After the budget resolves but before the `MoveState` is created, the registry queries `CanPhase` to determine the turn-long `UsedPhasing` cache. The boolean result overrides the default rider logic supplied by `canPhaseThrough`. 【F:chessTest/internal/game/moves.go†L134-L160】【F:chessTest/internal/game/piece_ops.go†L205-L231】
+3. **Move initialisation.** Once the `MoveState` exists and undo bookkeeping has been prepared, `OnMoveStart` runs so abilities can seed per-turn flags before `executeMoveSegment` mutates the board. 【F:chessTest/internal/game/moves.go†L147-L172】
+4. **Per-segment hooks.** Every normal or special segment triggers `OnSegmentStart` immediately before `executeMoveSegment` to let handlers inspect the planned displacement, followed by `OnCapture` when `registerCapture` logs a victim. Both callbacks fire before `ResolveCaptureAbility` to preserve the existing ordering. 【F:chessTest/internal/game/moves.go†L171-L318】
+5. **Turn cleanup.** After the post-capture termination checks determine that the turn is ending, `OnTurnEnd` executes so handlers can release temporary state or enqueue delayed effects before `endTurn` clears `currentMove`. 【F:chessTest/internal/game/moves.go†L188-L207】【F:chessTest/internal/game/moves.go†L313-L318】
+
+The registry records the current segment index so handlers like Chain Kill or Blaze Rush can keep their existing per-step accounting without reimplementing path reconstruction logic.
+
+### Error handling
+
+Hooks signal recoverable issues by returning `error`. The engine treats a non-nil error as a veto for the active stage, mirroring today’s flow where failed capture checks or ability resolutions abort the move and surface the error to the caller. For example, a `StepBudgetModifier` error bubbles out of `startNewMove`, while an `OnCapture` error cancels the remainder of the turn similar to a failed `ResolveCaptureAbility`. Fatal conditions (e.g., panics) remain exceptional and should not be used for user-facing rule enforcement. Handlers append player-readable context through the shared `Engine` reference so UI surfaces match the current `appendAbilityNote` behaviour. 【F:chessTest/internal/game/moves.go†L129-L211】【F:chessTest/internal/game/moves.go†L301-L323】【F:chessTest/internal/game/ability_resolver.go†L9-L201】
+
 ### Per-ability handler responsibilities
 
 Breaking `handlePostSegment` into discrete ability handlers implies the following dedicated duties:
