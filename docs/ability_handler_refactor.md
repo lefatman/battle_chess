@@ -69,6 +69,31 @@ The entrypoint for a turn front-loads several ability- and flag-aware decisions 
 * `captureBlockedByBlockPath` enforces the defender's facing restriction unless the attacker is Water-aspected, emitting the explanatory note that `continueMove` surfaces to the player. 【F:chessTest/internal/game/ability_resolver.go†L203-L214】
 * `hasFreeContinuation` defers to Blaze Rush and Flood Wake option checks; these helpers inspect `BlazeRushUsed`, `LastSegmentCaptured`, `FloodWakePushUsed`, elemental alignment, and future path availability to decide whether step exhaustion should end the turn. 【F:chessTest/internal/game/moves.go†L729-L815】
 
+### Special move flow audit
+
+#### Side Step nudge (`trySideStepNudge`)
+* **Eligibility gate:** Requires an active move, a Side Step-enabled piece, unused `SideStepUsed`, at least one remaining step, adjacency between `from`/`to`, and an empty destination. 【F:chessTest/internal/game/moves.go†L325-L338】
+* **State mutations:** Writes undo history for both squares, decrements `RemainingSteps`, toggles `SideStepUsed`, appends the destination to the path, clears the Resurrection window, and routes through `handlePostSegment` so downstream toggles fire. 【F:chessTest/internal/game/moves.go†L340-L355】
+* **Notes & termination:** Emits "Side Step nudge" with cost, then re-runs post-capture termination, step exhaustion checks, and remaining-step hints. 【F:chessTest/internal/game/moves.go†L357-L365】
+
+#### Quantum Step (`tryQuantumStep` & helpers)
+* **Activation checks:** Demands an active move, Quantum Step ability, unused `QuantumStepUsed`, positive steps, and a successful `validateQuantumStep` result. 【F:chessTest/internal/game/moves.go†L370-L381】
+* **Validation branches:** `validateQuantumStep` insists on adjacency, forbids hostile occupants, rejects standard-legal non-captures (so the special move only fires when normal movement is blocked), and returns a friendly piece pointer to signal swap mode. 【F:chessTest/internal/game/moves.go†L422-L444】
+* **State mutations:** Records undo squares, decrements steps (clamping at zero), marks `QuantumStepUsed`, clears the Resurrection window, appends the hop to the path, and funnels into `handlePostSegment`. 【F:chessTest/internal/game/moves.go†L383-L405】
+* **Blink vs swap:** Empty targets execute a standard `executeMoveSegment` blink. Friendly targets call `performQuantumSwap`, which zeroes En Passant, swaps board occupants, updates piece bitboards/occupancy, and refreshes castling rights for both pieces. 【F:chessTest/internal/game/moves.go†L395-L483】
+* **Notes & termination:** Emits either "blink" or "swap" notes, reuses the post-capture termination flow, and rechecks step exhaustion with free-continuation overrides. 【F:chessTest/internal/game/moves.go†L397-L417】
+
+### Special move hook surface
+
+To migrate Side Step and Quantum Step into handlers, the refactor will need dedicated hook methods in addition to the segment lifecycle callbacks:
+
+* **`OnSpecialMoveStart(piece, request, ctx)`** – decides whether the handler will consume the input before standard continuation validation. Must gate on adjacency, availability flags, open destinations, or friendly swap targets, and is responsible for declining when normal movement should proceed. 【F:chessTest/internal/game/moves.go†L325-L381】
+* **`OnSpecialMoveResolve(piece, ctx)`** – spends steps, toggles per-turn flags (`SideStepUsed`, `QuantumStepUsed`), clears `ResurrectionWindow`, performs the blink/swap board mutations, and appends ability notes. It should also populate undo history and extend the current path before control returns to shared post-segment routines. 【F:chessTest/internal/game/moves.go†L340-L417】【F:chessTest/internal/game/moves.go†L446-L483】
+* **`OnSegmentStart(piece, segment, ctx)`** – invoked after a special move schedules a new segment so handlers can ensure `handlePostSegment` equivalents toggle Flood Wake, Blaze Rush, Mist Shroud, and other once-per-turn states in sync with the normal pipeline. 【F:chessTest/internal/game/moves.go†L348-L365】【F:chessTest/internal/game/moves.go†L682-L727】
+* **`OnSegmentResolved(piece, segment, ctx)`** – continues to cover post-action cleanup (already required for Flood Wake/Blaze Rush/Mist Shroud) so special moves and standard segments share a termination path and ability note reporting. 【F:chessTest/internal/game/moves.go†L351-L365】【F:chessTest/internal/game/moves.go†L682-L739】
+
+Handlers that implement these hooks must directly manage the `MoveState` toggles (`SideStepUsed`, `QuantumStepUsed`, `RemainingSteps`, `ResurrectionWindow`) and emit the corresponding ability hints so the engine's turn-ending logic sees consistent state regardless of whether the action came from a special move or a standard segment. 【F:chessTest/internal/game/moves.go†L325-L417】
+
 ### Sequencing requirements for handler hooks
 
 * Special actions (Side Step, Quantum Step) must resolve and run their post-segment cleanup before any standard continuation logic executes, because they mutate step totals, resurrection windows, and ability usage flags that later checks read. 【F:chessTest/internal/game/moves.go†L231-L318】【F:chessTest/internal/game/moves.go†L325-L419】
