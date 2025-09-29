@@ -114,6 +114,11 @@ type Board struct {
 	pieceAt   [64]*Piece
 	turn      Color
 	lastNote  string
+	InCheck   bool
+	GameOver  bool
+	HasWinner bool
+	Winner    Color
+	Status    string
 }
 
 // Piece represents a single piece on the board.
@@ -159,6 +164,12 @@ type BoardState struct {
 	Elements    map[string]string   `json:"elements"`
 	BlockFacing map[int]Direction   `json:"blockFacing"`
 	Locked      bool                `json:"locked"`
+	InCheck     bool                `json:"inCheck"`
+	GameOver    bool                `json:"gameOver"`
+	Status      string              `json:"status"`
+	HasWinner   bool                `json:"hasWinner"`
+	Winner      Color               `json:"winner"`
+	WinnerName  string              `json:"winnerName"`
 }
 
 // ---------------------------
@@ -234,6 +245,7 @@ func (e *Engine) Reset() error {
 	setup(White, 0, 1)
 	e.board.turn = White
 	e.board.lastNote = "New game"
+	e.updateGameStatus()
 	return nil
 }
 
@@ -290,6 +302,11 @@ func (e *Engine) Move(req MoveRequest) error {
 
 // State returns a serializable representation of the current game state.
 func (e *Engine) State() BoardState {
+	winnerName := ""
+	if e.board.HasWinner {
+		winnerName = e.board.Winner.String()
+	}
+
 	state := BoardState{
 		Pieces:      make([]PieceState, 0, 32),
 		Turn:        e.board.turn,
@@ -299,6 +316,12 @@ func (e *Engine) State() BoardState {
 		Elements:    make(map[string]string),
 		BlockFacing: make(map[int]Direction),
 		Locked:      e.locked,
+		InCheck:     e.board.InCheck,
+		GameOver:    e.board.GameOver,
+		Status:      e.board.Status,
+		HasWinner:   e.board.HasWinner,
+		Winner:      e.board.Winner,
+		WinnerName:  winnerName,
 	}
 
 	for _, pc := range e.board.pieceAt {
