@@ -52,6 +52,30 @@ The entrypoint for a turn front-loads several ability- and flag-aware decisions 
 8. **Forced turn endings.** `shouldEndTurnAfterCapture` scans attacker abilities for Poisonous Meat, Overload, and Bastion triggers, appending notes when they fire. 【F:chessTest/internal/game/moves.go†L188-L199】【F:chessTest/internal/game/moves.go†L858-L890】
 9. **Post-move ability hints.** `resolveBlockPathFacing` and `checkPostMoveAbilities` post ability notes, while the final branch checks `RemainingSteps` alongside `hasFreeContinuation` to decide whether to end the turn. 【F:chessTest/internal/game/moves.go†L194-L209】【F:chessTest/internal/game/moves.go†L699-L769】【F:chessTest/internal/game/moves.go†L729-L818】
 
+## `continueMove` ability checkpoints
+
+1. **Side Step bail-out.** The continuation handler first offers the Side Step nudge before any other validation. `trySideStepNudge` consumes one step, marks `SideStepUsed`, resets the resurrection window, and re-runs the turn-ending checks, so the caller must branch on its return value. 【F:chessTest/internal/game/moves.go†L231-L233】【F:chessTest/internal/game/moves.go†L325-L368】
+2. **Quantum Step bail-out.** If Side Step declined, `tryQuantumStep` performs the once-per-turn blink or swap, decrementing `RemainingSteps`, toggling `QuantumStepUsed`, clearing the resurrection window, and then invoking the same post-segment termination checks. 【F:chessTest/internal/game/moves.go†L235-L237】【F:chessTest/internal/game/moves.go†L370-L419】
+3. **Resurrection window reset.** Any normal continuation immediately clears `ResurrectionWindow` before evaluating the destination, limiting Resurrection follow-ups to the very next input. 【F:chessTest/internal/game/moves.go†L249-L251】
+4. **Block Path veto.** Defender Block Path is consulted before execution; a match appends an ability note and aborts the capture attempt. Water-aligned attackers bypass the veto. 【F:chessTest/internal/game/moves.go†L257-L259】【F:chessTest/internal/game/ability_resolver.go†L203-L214】
+5. **Post-segment toggles.** After executing the segment, `handlePostSegment` updates `LastSegmentCaptured`, consumes Flood Wake and Blaze Rush freebies, and logs Mist Shroud pivots. These updates must occur before later continuation logic queries the flags. 【F:chessTest/internal/game/moves.go†L297-L300】【F:chessTest/internal/game/moves.go†L682-L727】
+6. **Capture aftermath.** Captures enqueue resurrection and Chain Kill bookkeeping via `registerCapture`, then invoke `ResolveCaptureAbility` for chained removals and penalties before `canCaptureMore` decides whether the move may continue. 【F:chessTest/internal/game/moves.go†L301-L310】
+7. **Forced turn endings.** After every segment the engine first asks `shouldEndTurnAfterCapture` (via `checkPostCaptureTermination`) and then checks for step exhaustion, only allowing the turn to continue if a Blaze Rush or Flood Wake free continuation is available. 【F:chessTest/internal/game/moves.go†L313-L318】【F:chessTest/internal/game/moves.go†L729-L739】【F:chessTest/internal/game/moves.go†L858-L890】
+
+### Helper side effects referenced by `continueMove`
+
+* `trySideStepNudge` writes undo history, spends one step, sets `SideStepUsed`, clears the resurrection window, and funnels into `handlePostSegment` so Flood Wake, Blaze Rush, and Mist Shroud hooks fire before the post-action termination logic. 【F:chessTest/internal/game/moves.go†L340-L365】
+* `tryQuantumStep` mirrors the Side Step flow while also toggling `QuantumStepUsed`, clamping `RemainingSteps` at zero, and either blinking or swapping pieces before the shared turn-ending checks. 【F:chessTest/internal/game/moves.go†L383-L417】
+* `captureBlockedByBlockPath` enforces the defender's facing restriction unless the attacker is Water-aspected, emitting the explanatory note that `continueMove` surfaces to the player. 【F:chessTest/internal/game/ability_resolver.go†L203-L214】
+* `hasFreeContinuation` defers to Blaze Rush and Flood Wake option checks; these helpers inspect `BlazeRushUsed`, `LastSegmentCaptured`, `FloodWakePushUsed`, elemental alignment, and future path availability to decide whether step exhaustion should end the turn. 【F:chessTest/internal/game/moves.go†L729-L815】
+
+### Sequencing requirements for handler hooks
+
+* Special actions (Side Step, Quantum Step) must resolve and run their post-segment cleanup before any standard continuation logic executes, because they mutate step totals, resurrection windows, and ability usage flags that later checks read. 【F:chessTest/internal/game/moves.go†L231-L318】【F:chessTest/internal/game/moves.go†L325-L419】
+* Normal continuations clear the resurrection window before looking for a defender, so any Resurrection handler has only the immediately following request to act. 【F:chessTest/internal/game/moves.go†L249-L251】
+* Capture handling requires the order `registerCapture` → `ResolveCaptureAbility` → `canCaptureMore`; reordering would break resurrection detection, chained removals, or capture-limit enforcement. 【F:chessTest/internal/game/moves.go†L301-L310】
+* Post-segment ability toggles run before capture aftermath and turn-ending checks so that free actions (Flood Wake/Blaze Rush) and Mist Shroud pivots are visible to both the capture budget logic and the final continuation gate. 【F:chessTest/internal/game/moves.go†L297-L318】【F:chessTest/internal/game/moves.go†L682-L739】
+
 ## Ability-driven helper behavior
 
 ### `calculateStepBudget`
