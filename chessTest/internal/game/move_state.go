@@ -13,10 +13,10 @@ type MoveState struct {
 	LastSegmentCaptured bool
 	Promotion           PieceType
 	PromotionSet        bool
-	Handlers            map[Ability][]AbilityHandler
+	Handlers            *abilityHandlerTable
 }
 
-func initializeMoveState(pc *Piece, start Square, remaining int, handlers map[Ability][]AbilityHandler, promotion PieceType, promotionSet bool) *MoveState {
+func initializeMoveState(pc *Piece, start Square, remaining int, handlers *abilityHandlerTable, promotion PieceType, promotionSet bool) *MoveState {
 	abilities := AbilityList(nil)
 	if pc != nil {
 		abilities = pc.Abilities
@@ -108,8 +108,8 @@ func (ms *MoveState) addAbilityCounter(id Ability, key abilityCounterIndex, delt
 }
 
 func (ms *MoveState) handlersFor(id Ability) []AbilityHandler {
-	if ms == nil || len(ms.Handlers) == 0 {
+	if ms == nil || ms.Handlers == nil {
 		return nil
 	}
-	return ms.Handlers[id]
+	return ms.Handlers.handlersFor(id)
 }

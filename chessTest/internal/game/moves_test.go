@@ -1,3 +1,4 @@
+// path: chessTest/internal/game/moves_test.go
 package game
 
 import (
@@ -14,7 +15,8 @@ func init() {
 }
 
 func TestMoveStateAbilityRuntimeZeroAlloc(t *testing.T) {
-	pc := &Piece{Abilities: AbilityList{AbilityResurrection, AbilityMistShroud}}
+	pc := &Piece{}
+	pc.SetAbilities(AbilityList{AbilityResurrection, AbilityMistShroud})
 	move := initializeMoveState(pc, 0, 3, nil, Pawn, false)
 
 	run := func() {
@@ -598,7 +600,7 @@ func TestHistoryDeltaMultiSegmentDoOverRestoresState(t *testing.T) {
 		t.Fatalf("expected %s to be empty after rewind", nudgeSq)
 	}
 
-	if victim.Abilities.Contains(AbilityDoOver) {
+	if victim.HasAbility(AbilityDoOver) {
 		t.Fatalf("expected DoOver ability to be consumed")
 	}
 	if !eng.pendingDoOver[victim.ID] {
@@ -1096,12 +1098,12 @@ func TestResurrectionCaptureWindowExpires(t *testing.T) {
 	if steps < 3 {
 		t.Fatalf("expected at least 3 steps with buffs, got %d", steps)
 	}
-	if eng.abilities[Black.Index()].Contains(AbilityDoOver) {
+	if eng.sideHasAbility(Black, AbilityDoOver) {
 		t.Fatalf("black side unexpectedly configured with Do-Over")
 	}
 	if pc := eng.board.pieceAt[firstCapture]; pc == nil {
 		t.Fatalf("expected black piece at %s", firstCapture)
-	} else if pc.Abilities.Contains(AbilityDoOver) {
+	} else if pc.HasAbility(AbilityDoOver) {
 		t.Fatalf("test setup gave victim Do-Over unexpectedly")
 	}
 

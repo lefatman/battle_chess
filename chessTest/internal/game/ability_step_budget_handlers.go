@@ -1,3 +1,4 @@
+// path: chessTest/internal/game/ability_step_budget_handlers.go
 package game
 
 // NewTailwindHandler constructs the default Tailwind ability handler.
@@ -12,7 +13,7 @@ func (tailwindHandler) StepBudgetModifier(ctx StepBudgetContext) (StepBudgetDelt
 		return StepBudgetDelta{}, nil
 	}
 	pc := ctx.Piece
-	if !pc.Abilities.Contains(AbilityTailwind) {
+	if !pc.HasAbility(AbilityTailwind) {
 		return StepBudgetDelta{}, nil
 	}
 	if elementOf(ctx.Engine, pc) != ElementAir {
@@ -20,7 +21,7 @@ func (tailwindHandler) StepBudgetModifier(ctx StepBudgetContext) (StepBudgetDelt
 	}
 
 	delta := StepBudgetDelta{AddSteps: 2, Notes: []string{"Tailwind grants +2 steps"}}
-	if pc.Abilities.Contains(AbilityTemporalLock) {
+	if pc.HasAbility(AbilityTemporalLock) {
 		delta.AddSteps--
 		delta.Notes = append(delta.Notes, "Temporal Lock dampens Tailwind (-1 step)")
 	}
@@ -39,7 +40,7 @@ func (radiantVisionHandler) StepBudgetModifier(ctx StepBudgetContext) (StepBudge
 		return StepBudgetDelta{}, nil
 	}
 	pc := ctx.Piece
-	if !pc.Abilities.Contains(AbilityRadiantVision) {
+	if !pc.HasAbility(AbilityRadiantVision) {
 		return StepBudgetDelta{}, nil
 	}
 	if elementOf(ctx.Engine, pc) != ElementLight {
@@ -47,7 +48,7 @@ func (radiantVisionHandler) StepBudgetModifier(ctx StepBudgetContext) (StepBudge
 	}
 
 	delta := StepBudgetDelta{AddSteps: 1, Notes: []string{"Radiant Vision grants +1 step"}}
-	if pc.Abilities.Contains(AbilityMistShroud) {
+	if pc.HasAbility(AbilityMistShroud) {
 		delta.AddSteps++
 		delta.Notes = append(delta.Notes, "Mist Shroud combo adds +1 step")
 	}
@@ -66,7 +67,7 @@ func (umbralStepHandler) StepBudgetModifier(ctx StepBudgetContext) (StepBudgetDe
 		return StepBudgetDelta{}, nil
 	}
 	pc := ctx.Piece
-	if !pc.Abilities.Contains(AbilityUmbralStep) {
+	if !pc.HasAbility(AbilityUmbralStep) {
 		return StepBudgetDelta{}, nil
 	}
 	if elementOf(ctx.Engine, pc) != ElementShadow {
@@ -74,7 +75,7 @@ func (umbralStepHandler) StepBudgetModifier(ctx StepBudgetContext) (StepBudgetDe
 	}
 
 	delta := StepBudgetDelta{AddSteps: 2, Notes: []string{"Umbral Step grants +2 steps"}}
-	if pc.Abilities.Contains(AbilityRadiantVision) {
+	if pc.HasAbility(AbilityRadiantVision) {
 		delta.AddSteps--
 		delta.Notes = append(delta.Notes, "Radiant Vision reduces Umbral Step by 1")
 	}
@@ -85,7 +86,7 @@ func (umbralStepHandler) CanPhase(ctx PhaseContext) (bool, error) {
 	if ctx.Piece == nil {
 		return false, nil
 	}
-	if !ctx.Piece.Abilities.Contains(AbilityUmbralStep) {
+	if !ctx.Piece.HasAbility(AbilityUmbralStep) {
 		return false, nil
 	}
 	return true, nil
@@ -103,12 +104,12 @@ func (schrodingersLaughHandler) StepBudgetModifier(ctx StepBudgetContext) (StepB
 		return StepBudgetDelta{}, nil
 	}
 	pc := ctx.Piece
-	if !pc.Abilities.Contains(AbilitySchrodingersLaugh) {
+	if !pc.HasAbility(AbilitySchrodingersLaugh) {
 		return StepBudgetDelta{}, nil
 	}
 
 	delta := StepBudgetDelta{AddSteps: 2, Notes: []string{"Schrödinger's Laugh grants +2 steps"}}
-	if pc.Abilities.Contains(AbilitySideStep) {
+	if pc.HasAbility(AbilitySideStep) {
 		delta.AddSteps++
 		delta.Notes = append(delta.Notes, "Side Step combo adds +1 step")
 	}
@@ -126,7 +127,7 @@ func (galeLiftHandler) CanPhase(ctx PhaseContext) (bool, error) {
 	if ctx.Piece == nil {
 		return false, nil
 	}
-	if !ctx.Piece.Abilities.Contains(AbilityGaleLift) {
+	if !ctx.Piece.HasAbility(AbilityGaleLift) {
 		return false, nil
 	}
 	return true, nil

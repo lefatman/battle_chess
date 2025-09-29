@@ -1,3 +1,4 @@
+// path: chessTest/internal/game/ability_capture_handlers.go
 package game
 
 import "fmt"
@@ -46,7 +47,7 @@ func (scorchHandler) StepBudgetModifier(ctx StepBudgetContext) (StepBudgetDelta,
 		return StepBudgetDelta{}, nil
 	}
 	pc := ctx.Piece
-	if !pc.Abilities.Contains(AbilityScorch) {
+	if !pc.HasAbility(AbilityScorch) {
 		return StepBudgetDelta{}, nil
 	}
 	if elementOf(ctx.Engine, pc) != ElementFire {
@@ -139,7 +140,7 @@ func (poisonousMeatHandler) ResolveCapture(ctx CaptureContext) (CaptureOutcome, 
 		return CaptureOutcome{}, nil
 	}
 	attacker := ctx.Attacker
-	if !attacker.Abilities.Contains(AbilityPoisonousMeat) {
+	if !attacker.HasAbility(AbilityPoisonousMeat) {
 		return CaptureOutcome{}, nil
 	}
 	outcome := CaptureOutcome{ForceTurnEnd: true}
@@ -163,12 +164,12 @@ func (overloadHandler) ResolveCapture(ctx CaptureContext) (CaptureOutcome, error
 		return CaptureOutcome{}, nil
 	}
 	attacker := ctx.Attacker
-	if !attacker.Abilities.Contains(AbilityOverload) {
+	if !attacker.HasAbility(AbilityOverload) {
 		return CaptureOutcome{}, nil
 	}
 	element := elementOf(ctx.Engine, attacker)
 	outcome := CaptureOutcome{}
-	if attacker.Abilities.Contains(AbilityStalwart) && element == ElementLightning && ctx.Move.RemainingSteps > 0 {
+	if attacker.HasAbility(AbilityStalwart) && element == ElementLightning && ctx.Move.RemainingSteps > 0 {
 		outcome.StepAdjustment = -1
 		appendAbilityNote(&ctx.Engine.board.lastNote, "Overload + Stalwart costs 1 step")
 	}
@@ -195,7 +196,7 @@ func (bastionHandler) ResolveCapture(ctx CaptureContext) (CaptureOutcome, error)
 		return CaptureOutcome{}, nil
 	}
 	attacker := ctx.Attacker
-	if !attacker.Abilities.Contains(AbilityBastion) {
+	if !attacker.HasAbility(AbilityBastion) {
 		return CaptureOutcome{}, nil
 	}
 	if elementOf(ctx.Engine, attacker) != ElementEarth {
@@ -217,7 +218,7 @@ func (temporalLockHandler) ResolveTurnEnd(ctx TurnEndContext) (TurnEndOutcome, e
 		return TurnEndOutcome{}, nil
 	}
 	pc := ctx.Move.Piece
-	if !pc.Abilities.Contains(AbilityTemporalLock) {
+	if !pc.HasAbility(AbilityTemporalLock) {
 		return TurnEndOutcome{}, nil
 	}
 	slow := 1

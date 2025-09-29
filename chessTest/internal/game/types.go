@@ -131,13 +131,61 @@ const AbilityCount = int(AbilitySchrodingersLaugh) + 1
 
 type AbilityList []Ability
 
-func (al AbilityList) Contains(target Ability) bool {
-	for _, ability := range al {
-		if ability == target {
-			return true
-		}
+type AbilitySet uint64
+
+func abilityIndex(id Ability) int {
+	idx := int(id)
+	if idx < 0 || idx >= AbilityCount {
+		return -1
 	}
-	return false
+	return idx
+}
+
+func abilityBit(id Ability) AbilitySet {
+	idx := abilityIndex(id)
+	if idx < 0 {
+		return 0
+	}
+	return AbilitySet(1) << uint(idx)
+}
+
+func (s AbilitySet) With(id Ability) AbilitySet { return s | abilityBit(id) }
+
+func (s AbilitySet) Without(id Ability) AbilitySet { return s &^ abilityBit(id) }
+
+func (s AbilitySet) Has(id Ability) bool { return s&abilityBit(id) != 0 }
+
+func (s AbilitySet) Empty() bool { return s == 0 }
+
+func NewAbilitySet(ids ...Ability) AbilitySet {
+	var set AbilitySet
+	for _, id := range ids {
+		if id == AbilityNone {
+			continue
+		}
+		set |= abilityBit(id)
+	}
+	return set
+}
+
+func AbilitySetFromList(list AbilityList) AbilitySet {
+	if len(list) == 0 {
+		return 0
+	}
+	var set AbilitySet
+	for _, id := range list {
+		if id == AbilityNone {
+			continue
+		}
+		set |= abilityBit(id)
+	}
+	return set
+}
+
+func (al AbilityList) Set() AbilitySet { return AbilitySetFromList(al) }
+
+func (al AbilityList) Contains(target Ability) bool {
+	return al.Set().Has(target)
 }
 
 func (al AbilityList) Clone() AbilityList {

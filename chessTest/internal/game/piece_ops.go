@@ -78,14 +78,14 @@ func (e *Engine) placePiece(color Color, pt PieceType, sq Square) {
 	id := e.nextPieceID
 	e.nextPieceID++
 	pc := &Piece{
-		ID:        id,
-		Color:     color,
-		Type:      pt,
-		Square:    sq,
-		Abilities: e.abilities[color.Index()].Clone(),
-		Element:   e.elements[color.Index()],
-		BlockDir:  DirNone,
+		ID:       id,
+		Color:    color,
+		Type:     pt,
+		Square:   sq,
+		Element:  e.elements[color.Index()],
+		BlockDir: DirNone,
 	}
+	pc.CloneAbilitiesFrom(e.abilities[color.Index()])
 	e.board.pieceAt[sq] = pc
 	e.board.pieces[color][pt] = e.board.pieces[color][pt].Add(sq)
 	e.board.occupancy[color] = e.board.occupancy[color].Add(sq)
@@ -208,56 +208,71 @@ func (e *Engine) canPhaseThrough(pc *Piece, from Square, to Square) bool {
 		return false
 	}
 
-	handlerMaps := []map[Ability][]AbilityHandler{}
+	var tables [2]*abilityHandlerTable
+	count := 0
 	primary := e.activeHandlers()
-	if len(primary) > 0 {
-		handlerMaps = append(handlerMaps, primary)
+	if primary != nil && !primary.empty() {
+		tables[count] = primary
+		count++
 	}
-	if sideHandlers, err := e.instantiateSideAbilityHandlers(pc, primary); err == nil && len(sideHandlers) > 0 {
-		handlerMaps = append(handlerMaps, sideHandlers)
+	sideHandlers, err := e.instantiateSideAbilityHandlers(pc, primary)
+	if err == nil && sideHandlers != nil && !sideHandlers.empty() {
+		tables[count] = sideHandlers
+		count++
+	} else if err != nil {
+		releaseAbilityHandlers(sideHandlers)
+		sideHandlers = nil
+	}
+	if sideHandlers != nil {
+		defer releaseAbilityHandlers(sideHandlers)
 	}
 
-	if len(handlerMaps) > 0 {
+	if count > 0 {
 		ctx := &e.abilityCtx.phase
 		*ctx = PhaseContext{Engine: e, Piece: pc, From: from, To: to}
 		defer func() {
 			e.abilityCtx.phase = PhaseContext{}
 		}()
-		for _, handlerMap := range handlerMaps {
-			for _, handlerList := range handlerMap {
-				for _, handler := range handlerList {
-					if handler == nil {
-						continue
-					}
-					allowed, err := handler.CanPhase(*ctx)
-					if err != nil {
-						if errors.Is(err, ErrPhaseDenied) {
-							return false
-						}
-						continue
-					}
-					if allowed {
-						return true
-					}
+		allowed := false
+		denied := false
+		for i := 0; i < count; i++ {
+			_ = tables[i].forEach(func(_ Ability, handler AbilityHandler) error {
+				if handler == nil || allowed || denied {
+					return nil
 				}
+				permitted, err := handler.CanPhase(*ctx)
+				if err != nil {
+					if errors.Is(err, ErrPhaseDenied) {
+						denied = true
+					}
+					return nil
+				}
+				if permitted {
+					allowed = true
+				}
+				return nil
+			})
+			if denied {
+				return false
+			}
+			if allowed {
+				return true
 			}
 		}
 	}
 
-	hasFlood := pc.Abilities.Contains(AbilityFloodWake)
-	hasBastion := pc.Abilities.Contains(AbilityBastion)
-	hasGale := pc.Abilities.Contains(AbilityGaleLift)
+	hasFlood := pc.HasAbility(AbilityFloodWake)
+	hasBastion := pc.HasAbility(AbilityBastion)
+	hasGale := pc.HasAbility(AbilityGaleLift)
 
-	if al := e.abilities[pc.Color.Index()]; len(al) > 0 {
-		if al.Contains(AbilityFloodWake) {
-			hasFlood = true
-		}
-		if al.Contains(AbilityBastion) {
-			hasBastion = true
-		}
-		if al.Contains(AbilityGaleLift) {
-			hasGale = true
-		}
+	if e.sideHasAbility(pc.Color, AbilityFloodWake) {
+		hasFlood = true
+	}
+	if e.sideHasAbility(pc.Color, AbilityBastion) {
+		hasBastion = true
+	}
+	if e.sideHasAbility(pc.Color, AbilityGaleLift) {
+		hasGale = true
 	}
 
 	if hasFlood || hasBastion {
@@ -266,10 +281,10 @@ func (e *Engine) canPhaseThrough(pc *Piece, from Square, to Square) bool {
 	if hasGale {
 		return true
 	}
-	if pc.Abilities.Contains(AbilityUmbralStep) {
+	if pc.HasAbility(AbilityUmbralStep) {
 		return true
 	}
-	if al := e.abilities[pc.Color.Index()]; len(al) > 0 && al.Contains(AbilityUmbralStep) {
+	if e.sideHasAbility(pc.Color, AbilityUmbralStep) {
 		return true
 	}
 	return false

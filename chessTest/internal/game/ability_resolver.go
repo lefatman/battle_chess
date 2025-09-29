@@ -44,7 +44,7 @@ func (e *Engine) trySmartExtraCapture(attacker *Piece, captureSquare Square, vic
 		if !e.canAbilityRemove(attacker, p) {
 			continue
 		}
-		if elementOf(e, p) == ElementEarth || p.Abilities.Contains(AbilityObstinant) || e.abilities[p.Color.Index()].Contains(AbilityObstinant) {
+		if elementOf(e, p) == ElementEarth || p.HasAbility(AbilityObstinant) || e.sideHasAbility(p.Color, AbilityObstinant) {
 			continue
 		}
 		r := rankOf(p.Type)
@@ -58,7 +58,7 @@ func (e *Engine) trySmartExtraCapture(attacker *Piece, captureSquare Square, vic
 }
 
 func (e *Engine) maybeTriggerDoOver(victim *Piece) error {
-	if victim == nil || !victim.Abilities.Contains(AbilityDoOver) || e.pendingDoOver[victim.ID] {
+	if victim == nil || !victim.HasAbility(AbilityDoOver) || e.pendingDoOver[victim.ID] {
 		return nil
 	}
 	e.recordPendingDoOverForUndo(victim.ID)
@@ -69,13 +69,13 @@ func (e *Engine) maybeTriggerDoOver(victim *Piece) error {
 	}
 	if plies > 0 {
 		e.popHistory(plies)
-		victim.Abilities = victim.Abilities.Without(AbilityDoOver)
+		victim.RemoveAbility(AbilityDoOver)
 		e.pendingDoOver[victim.ID] = true
 		e.board.lastNote = fmt.Sprintf("DoOver: %s %s rewound %d plies (%.1f turns)", victim.Color, victim.Type, plies, float64(plies)/2.0)
 		return ErrDoOverActivated
 	}
 
-	victim.Abilities = victim.Abilities.Without(AbilityDoOver)
+	victim.RemoveAbility(AbilityDoOver)
 	e.pendingDoOver[victim.ID] = true
 	return nil
 }
@@ -87,13 +87,13 @@ func (e *Engine) canAbilityRemove(attacker, target *Piece) bool {
 	if target.Type == King {
 		return false
 	}
-	if target.Abilities.Contains(AbilityIndomitable) {
+	if target.HasAbility(AbilityIndomitable) {
 		return false
 	}
-	if target.Abilities.Contains(AbilityStalwart) && attacker != nil && rankOf(attacker.Type) < rankOf(target.Type) {
+	if target.HasAbility(AbilityStalwart) && attacker != nil && rankOf(attacker.Type) < rankOf(target.Type) {
 		return false
 	}
-	if target.Abilities.Contains(AbilityBelligerent) && attacker != nil && rankOf(attacker.Type) > rankOf(target.Type) {
+	if target.HasAbility(AbilityBelligerent) && attacker != nil && rankOf(attacker.Type) > rankOf(target.Type) {
 		return false
 	}
 	return true
@@ -171,7 +171,7 @@ func (e *Engine) dispatchCaptureResolutionHandlers(attacker, victim *Piece, squa
 }
 
 func (e *Engine) captureBlockedByBlockPath(attacker *Piece, from Square, defender *Piece, to Square) (bool, string) {
-	if defender == nil || !defender.Abilities.Contains(AbilityBlockPath) || defender.BlockDir == DirNone {
+	if defender == nil || !defender.HasAbility(AbilityBlockPath) || defender.BlockDir == DirNone {
 		return false, ""
 	}
 	if attacker != nil && elementOf(e, attacker) == ElementWater {

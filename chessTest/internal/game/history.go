@@ -1,3 +1,4 @@
+// path: chessTest/internal/game/history.go
 package game
 
 // historyDelta captures the minimal state needed to undo a single move segment.
@@ -105,6 +106,7 @@ func (d *historyDelta) apply(e *Engine) {
 		}
 		restored := entry.snapshot.pieceData
 		restored.Abilities = restored.Abilities.Clone()
+		restored.AbilityMask = restored.Abilities.Set()
 		*entry.piece = restored
 		e.board.pieceAt[entry.square] = entry.piece
 		e.board.pieces[entry.piece.Color][entry.piece.Type] = e.board.pieces[entry.piece.Color][entry.piece.Type].Add(entry.square)
@@ -149,6 +151,7 @@ func (d *historyDelta) apply(e *Engine) {
 func clonePieceState(pc *Piece) Piece {
 	clone := *pc
 	clone.Abilities = pc.Abilities.Clone()
+	clone.AbilityMask = clone.Abilities.Set()
 	return clone
 }
 

@@ -1,3 +1,4 @@
+// path: chessTest/internal/game/ability_fallbacks.go
 package game
 
 // abilityHandlerBase provides default implementations for AbilityHandler
@@ -59,7 +60,7 @@ func (blazeRushFallbackHandler) PrepareSegment(ctx *SegmentPreparationContext) e
 		return nil
 	}
 	pc := ctx.Move.Piece
-	if pc == nil || !pc.Abilities.Contains(AbilityBlazeRush) {
+	if pc == nil || !pc.HasAbility(AbilityBlazeRush) {
 		return nil
 	}
 	if !ctx.Engine.isBlazeRushDash(pc, ctx.From, ctx.To, ctx.Segment.Capture) {
@@ -112,7 +113,7 @@ func (floodWakeFallbackHandler) PrepareSegment(ctx *SegmentPreparationContext) e
 		return nil
 	}
 	pc := ctx.Move.Piece
-	if pc == nil || !pc.Abilities.Contains(AbilityFloodWake) {
+	if pc == nil || !pc.HasAbility(AbilityFloodWake) {
 		return nil
 	}
 	if !ctx.Engine.isFloodWakePushAvailable(pc, ctx.From, ctx.To, ctx.Segment.Capture) {
@@ -162,7 +163,7 @@ func (mistShroudFallbackHandler) PrepareSegment(ctx *SegmentPreparationContext) 
 	}
 	move := ctx.Move
 	pc := move.Piece
-	if pc == nil || !pc.Abilities.Contains(AbilityMistShroud) {
+	if pc == nil || !pc.HasAbility(AbilityMistShroud) {
 		return nil
 	}
 	if move.abilityCounter(AbilityMistShroud, abilityCounterFree) != 0 {
@@ -181,7 +182,7 @@ func (mistShroudFallbackHandler) OnDirectionChange(ctx DirectionChangeContext) b
 	if ctx.Engine == nil || ctx.Move == nil || ctx.Piece == nil {
 		return false
 	}
-	if !ctx.Piece.Abilities.Contains(AbilityMistShroud) {
+	if !ctx.Piece.HasAbility(AbilityMistShroud) {
 		return false
 	}
 	if ctx.Move.abilityCounter(AbilityMistShroud, abilityCounterFree) != 0 {
@@ -207,7 +208,7 @@ func (sideStepFallbackHandler) PlanSpecialMove(ctx *SpecialMoveContext) (Special
 		return SpecialMovePlan{}, false, nil
 	}
 	pc := ctx.Piece
-	if !pc.Abilities.Contains(AbilitySideStep) {
+	if !pc.HasAbility(AbilitySideStep) {
 		return SpecialMovePlan{}, false, nil
 	}
 	if ctx.Move.abilityUsed(AbilitySideStep) || ctx.Move.RemainingSteps <= 0 {
@@ -247,7 +248,7 @@ func (quantumStepFallbackHandler) PlanSpecialMove(ctx *SpecialMoveContext) (Spec
 		return SpecialMovePlan{}, false, nil
 	}
 	pc := ctx.Piece
-	if !pc.Abilities.Contains(AbilityQuantumStep) {
+	if !pc.HasAbility(AbilityQuantumStep) {
 		return SpecialMovePlan{}, false, nil
 	}
 	if ctx.Move.abilityUsed(AbilityQuantumStep) || ctx.Move.RemainingSteps <= 0 {
@@ -290,3 +291,25 @@ var (
 	_ SpecialMoveHandler        = sideStepFallbackHandler{}
 	_ SpecialMoveHandler        = quantumStepFallbackHandler{}
 )
+
+func init() {
+	registerAbilityFallback(AbilityBlazeRush, newBlazeRushFallbackHandler())
+	registerAbilityFallback(AbilityFloodWake, newFloodWakeFallbackHandler())
+	registerAbilityFallback(AbilitySideStep, newSideStepFallbackHandler())
+	registerAbilityFallback(AbilityQuantumStep, newQuantumStepFallbackHandler())
+	registerAbilityFallback(AbilityMistShroud, newMistShroudFallbackHandler())
+	registerAbilityFallback(AbilityDoubleKill, NewDoubleKillHandler())
+	registerAbilityFallback(AbilityScorch, NewScorchHandler())
+	registerAbilityFallback(AbilityTailwind, NewTailwindHandler())
+	registerAbilityFallback(AbilityRadiantVision, NewRadiantVisionHandler())
+	registerAbilityFallback(AbilityUmbralStep, NewUmbralStepHandler())
+	registerAbilityFallback(AbilityQuantumKill, NewQuantumKillHandler())
+	registerAbilityFallback(AbilityChainKill, NewChainKillHandler())
+	registerAbilityFallback(AbilityGaleLift, NewGaleLiftHandler())
+	registerAbilityFallback(AbilityPoisonousMeat, NewPoisonousMeatHandler())
+	registerAbilityFallback(AbilityOverload, NewOverloadHandler())
+	registerAbilityFallback(AbilityBastion, NewBastionHandler())
+	registerAbilityFallback(AbilitySchrodingersLaugh, NewSchrodingersLaughHandler())
+	registerAbilityFallback(AbilityTemporalLock, NewTemporalLockHandler())
+	registerAbilityFallback(AbilityResurrection, NewResurrectionHandler())
+}
