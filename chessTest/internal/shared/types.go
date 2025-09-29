@@ -19,6 +19,8 @@ func (c Color) Opposite() Color {
 	return White
 }
 
+func (c Color) Index() int { return int(c) }
+
 func (c Color) String() string {
 	if c == White {
 		return "white"
