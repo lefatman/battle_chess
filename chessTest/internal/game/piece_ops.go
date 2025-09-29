@@ -22,6 +22,12 @@ func (e *Engine) executeMoveSegment(from, to Square, ctx moveSegmentContext) {
 		return
 	}
 
+	e.recordSquareForUndo(from)
+	e.recordSquareForUndo(to)
+	if ctx.capture != nil {
+		e.recordSquareForUndo(ctx.captureSquare)
+	}
+
 	isCastle := pc.Type == King && from.Rank() == to.Rank() && absInt(to.File()-from.File()) == 2
 
 	if ctx.capture != nil {
@@ -150,6 +156,9 @@ func (e *Engine) performCastleRookMove(color Color, from, to Square) {
 		return
 	}
 
+	e.recordSquareForUndo(rookFrom)
+	e.recordSquareForUndo(rookTo)
+
 	e.board.pieceAt[rookFrom] = nil
 	rook.Square = rookTo
 	e.board.pieceAt[rookTo] = rook
@@ -162,6 +171,11 @@ func (e *Engine) performCastleRookMove(color Color, from, to Square) {
 }
 
 func (e *Engine) removePiece(pc *Piece, sq Square) {
+	e.recordSquareForUndo(sq)
+	if pc != nil {
+		e.recordBlockFacingForUndo(pc.ID)
+		e.recordPendingDoOverForUndo(pc.ID)
+	}
 	e.board.pieces[pc.Color][pc.Type] = e.board.pieces[pc.Color][pc.Type].Remove(sq)
 	e.board.occupancy[pc.Color] = e.board.occupancy[pc.Color].Remove(sq)
 	e.board.allOcc = e.board.allOcc.Remove(sq)

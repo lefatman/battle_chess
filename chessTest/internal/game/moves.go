@@ -160,7 +160,14 @@ func (e *Engine) startNewMove(req MoveRequest) error {
 	}
 
 	// The move is now valid, push the state before executing.
-	e.pushHistory()
+	delta := e.pushHistory()
+	defer e.finalizeHistory(delta)
+
+	e.recordSquareForUndo(from)
+	e.recordSquareForUndo(to)
+	if segmentCtx.capture != nil {
+		e.recordSquareForUndo(segmentCtx.captureSquare)
+	}
 	e.executeMoveSegment(from, to, segmentCtx)
 	e.handlePostSegment(pc, from, to, segmentCtx.capture)
 
@@ -278,7 +285,14 @@ func (e *Engine) continueMove(req MoveRequest) error {
 	}
 
 	// Continuation is valid, push state and execute.
-	e.pushHistory()
+	delta := e.pushHistory()
+	defer e.finalizeHistory(delta)
+
+	e.recordSquareForUndo(from)
+	e.recordSquareForUndo(to)
+	if segmentCtx.capture != nil {
+		e.recordSquareForUndo(segmentCtx.captureSquare)
+	}
 	e.currentMove.RemainingSteps -= stepsNeeded
 	e.executeMoveSegment(from, to, segmentCtx)
 	e.currentMove.Path = append(e.currentMove.Path, to)
@@ -323,7 +337,11 @@ func (e *Engine) trySideStepNudge(pc *Piece, from, to Square) (bool, error) {
 		return false, nil
 	}
 
-	e.pushHistory()
+	delta := e.pushHistory()
+	defer e.finalizeHistory(delta)
+
+	e.recordSquareForUndo(from)
+	e.recordSquareForUndo(to)
 	e.currentMove.RemainingSteps--
 	e.currentMove.SideStepUsed = true
 
@@ -362,7 +380,11 @@ func (e *Engine) tryQuantumStep(pc *Piece, from, to Square) (bool, error) {
 		return false, nil
 	}
 
-	e.pushHistory()
+	delta := e.pushHistory()
+	defer e.finalizeHistory(delta)
+
+	e.recordSquareForUndo(from)
+	e.recordSquareForUndo(to)
 	e.currentMove.RemainingSteps--
 	if e.currentMove.RemainingSteps < 0 {
 		e.currentMove.RemainingSteps = 0
@@ -428,6 +450,9 @@ func (e *Engine) performQuantumSwap(pc, ally *Piece, from, to Square) {
 	if ally.Color != pc.Color {
 		return
 	}
+
+	e.recordSquareForUndo(from)
+	e.recordSquareForUndo(to)
 
 	e.board.EnPassant = NoEnPassantTarget()
 

@@ -1,6 +1,7 @@
 package game
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -470,6 +471,136 @@ func TestFloodWakePushAfterSlide(t *testing.T) {
 	}
 	if !strings.Contains(eng.board.lastNote, "Flood Wake push (free)") {
 		t.Fatalf("expected note for Flood Wake push, got %q", eng.board.lastNote)
+	}
+}
+
+func TestHistoryDeltaMultiSegmentDoOverRestoresState(t *testing.T) {
+	eng := NewEngine()
+	whiteAbilities := AbilityList{AbilitySideStep, AbilityQuantumStep, AbilitySchrodingersLaugh, AbilityMistShroud, AbilityTailwind}
+	if err := eng.SetSideConfig(White, whiteAbilities, ElementAir); err != nil {
+		t.Fatalf("configure white: %v", err)
+	}
+	if err := eng.SetSideConfig(Black, AbilityList{AbilityDoOver}, ElementShadow); err != nil {
+		t.Fatalf("configure black: %v", err)
+	}
+
+	clearBoard(eng)
+
+	rookSq := mustSquare(t, "a1")
+	firstLeg := mustSquare(t, "a3")
+	nudgeSq := mustSquare(t, "b3")
+	swapSq := mustSquare(t, "c4")
+	targetSq := mustSquare(t, "c8")
+
+	eng.placePiece(White, Rook, rookSq)
+	eng.placePiece(White, Knight, swapSq)
+	eng.placePiece(Black, Rook, targetSq)
+
+	rook := eng.board.pieceAt[rookSq]
+	ally := eng.board.pieceAt[swapSq]
+	victim := eng.board.pieceAt[targetSq]
+
+	enPassantSq := mustSquare(t, "d6")
+	eng.board.EnPassant = NewEnPassantTarget(enPassantSq)
+	eng.board.Castling = CastlingAll
+	eng.board.turn = White
+	eng.board.lastNote = "ready"
+	eng.board.Status = "ongoing"
+	eng.board.GameOver = false
+	eng.board.HasWinner = false
+	eng.board.InCheck = false
+	eng.locked = true
+	eng.temporalSlow = [2]int{1, 2}
+
+	if len(eng.history) != 0 {
+		t.Fatalf("expected empty history before move")
+	}
+
+	if err := eng.Move(MoveRequest{From: rookSq, To: firstLeg, Dir: DirNone}); err != nil {
+		t.Fatalf("first segment: %v", err)
+	}
+	if eng.currentMove == nil {
+		t.Fatalf("expected move to remain active after first segment")
+	}
+
+	if err := eng.Move(MoveRequest{From: firstLeg, To: nudgeSq, Dir: DirNone}); err != nil {
+		t.Fatalf("side step segment: %v", err)
+	}
+	if eng.currentMove == nil {
+		t.Fatalf("expected move to remain active after side step")
+	}
+
+	if err := eng.Move(MoveRequest{From: nudgeSq, To: swapSq, Dir: DirNone}); err != nil {
+		t.Fatalf("quantum swap segment: %v", err)
+	}
+	if eng.currentMove == nil {
+		t.Fatalf("expected move to remain active after quantum swap")
+	}
+
+	err := eng.Move(MoveRequest{From: swapSq, To: targetSq, Dir: DirNone})
+	if !errors.Is(err, ErrDoOverActivated) {
+		t.Fatalf("expected DoOver activation, got %v", err)
+	}
+	if eng.currentMove != nil {
+		t.Fatalf("expected current move to be cleared after DoOver")
+	}
+
+	if got := eng.board.pieceAt[rookSq]; got != rook {
+		t.Fatalf("expected rook back on %s", rookSq)
+	}
+	if got := eng.board.pieceAt[swapSq]; got != ally {
+		t.Fatalf("expected ally restored on %s", swapSq)
+	}
+	if got := eng.board.pieceAt[targetSq]; got != victim {
+		t.Fatalf("expected victim restored on %s", targetSq)
+	}
+	if eng.board.pieceAt[firstLeg] != nil {
+		t.Fatalf("expected %s to be empty after rewind", firstLeg)
+	}
+	if eng.board.pieceAt[nudgeSq] != nil {
+		t.Fatalf("expected %s to be empty after rewind", nudgeSq)
+	}
+
+	if victim.Abilities.Contains(AbilityDoOver) {
+		t.Fatalf("expected DoOver ability to be consumed")
+	}
+	if !eng.pendingDoOver[victim.ID] {
+		t.Fatalf("expected pending DoOver flag for victim")
+	}
+
+	if eng.board.Castling != CastlingAll {
+		t.Fatalf("expected castling rights restored, got %v", eng.board.Castling)
+	}
+	if sq, ok := eng.board.EnPassant.Square(); !ok || sq != enPassantSq {
+		t.Fatalf("expected en passant target %s, got %v (%v)", enPassantSq, sq, ok)
+	}
+
+	expectedSlow := [2]int{0, 2}
+	if eng.temporalSlow != expectedSlow {
+		t.Fatalf("expected temporal slow %v, got %v", expectedSlow, eng.temporalSlow)
+	}
+
+	if eng.board.turn != White {
+		t.Fatalf("expected turn to remain White, got %s", eng.board.turn)
+	}
+	if len(eng.history) != 0 {
+		t.Fatalf("expected history to be cleared after rewind, got %d entries", len(eng.history))
+	}
+	if eng.activeDelta != nil {
+		t.Fatalf("expected no active delta after rewind")
+	}
+	if !strings.Contains(eng.board.lastNote, "DoOver") {
+		t.Fatalf("expected DoOver note, got %q", eng.board.lastNote)
+	}
+
+	if rook.Square != rookSq {
+		t.Fatalf("expected rook square reset to %s, got %s", rookSq, rook.Square)
+	}
+	if ally.Square != swapSq {
+		t.Fatalf("expected ally square reset to %s, got %s", swapSq, ally.Square)
+	}
+	if victim.Square != targetSq {
+		t.Fatalf("expected victim square reset to %s, got %s", targetSq, victim.Square)
 	}
 }
 
