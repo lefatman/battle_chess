@@ -14,6 +14,33 @@ type AbilityHandler interface {
 	OnTurnEnd(ctx TurnEndContext) error
 }
 
+// SegmentPreparationHandler allows abilities to inspect and modify a segment's
+// pending cost or remaining step budget before standard validation occurs.
+// Implementers may adjust the pointed values in the context to charge
+// additional costs, grant discounts, or even consume steps outright. Returning
+// an error vetoes the segment and aborts the move continuation.
+type SegmentPreparationHandler interface {
+	PrepareSegment(ctx *SegmentPreparationContext) error
+}
+
+// SegmentResolutionHandler runs after a segment successfully resolves but
+// before capture handlers or continuation checks execute. It mirrors the
+// existing post-segment bookkeeping performed by inline ability logic so
+// handlers can toggle once-per-turn flags, publish notes, or otherwise update
+// their runtime state.
+type SegmentResolutionHandler interface {
+	OnSegmentResolved(ctx SegmentResolutionContext) error
+}
+
+// SpecialMoveHandler lets abilities claim ownership of special continuation
+// inputs (such as Side Step or Quantum Step). Handlers return a plan that
+// describes the step cost, execution action, and any post-resolution
+// bookkeeping required. A "false" handled flag instructs the engine to fall
+// back to its default implementation.
+type SpecialMoveHandler interface {
+	PlanSpecialMove(ctx *SpecialMoveContext) (SpecialMovePlan, bool, error)
+}
+
 // StepBudgetContext carries the data required to adjust the initial step budget
 // for a move.
 type StepBudgetContext struct {
@@ -62,6 +89,72 @@ type SegmentContext struct {
 	SegmentStep int // zero-based index within the turn
 }
 
+// SegmentPreparationContext supplies handlers with mutable step-budget
+// pointers so they can apply surcharges or discounts before the engine checks
+// affordability. Handlers may freely mutate the pointed values; the engine will
+// read the adjusted totals after all handlers run.
+type SegmentPreparationContext struct {
+	Engine      *Engine
+	Move        *MoveState
+	From        shared.Square
+	To          shared.Square
+	Segment     SegmentMetadata
+	SegmentStep int
+	StepCost    *int
+	StepBudget  *int
+}
+
+// SegmentResolutionContext mirrors the segment metadata made available to
+// standard hooks while also communicating how many steps the engine deducted for
+// the segment. Handlers can inspect the remaining budget via ctx.Move.
+type SegmentResolutionContext struct {
+	Engine        *Engine
+	Move          *MoveState
+	From          shared.Square
+	To            shared.Square
+	Segment       SegmentMetadata
+	SegmentStep   int
+	StepsConsumed int
+}
+
+// SpecialMoveAction enumerates the execution strategies supported by
+// SpecialMovePlan.
+type SpecialMoveAction int
+
+const (
+	SpecialMoveActionNone SpecialMoveAction = iota
+	SpecialMoveActionMove
+	SpecialMoveActionSwap
+)
+
+// SpecialMoveContext conveys the attempted displacement to ability handlers and
+// exposes mutable planning fields. The SegmentStep mirrors the zero-based index
+// used throughout the move lifecycle.
+type SpecialMoveContext struct {
+	Engine      *Engine
+	Move        *MoveState
+	Piece       *Piece
+	From        shared.Square
+	To          shared.Square
+	Ability     Ability
+	SegmentStep int
+}
+
+// SpecialMovePlan instructs the engine how to execute a handler-claimed special
+// move. The engine applies the requested cost, performs the action, and runs the
+// shared post-segment pipeline after execution.
+type SpecialMovePlan struct {
+	StepCost          int
+	Action            SpecialMoveAction
+	SwapWith          *Piece
+	Metadata          SegmentMetadata
+	Note              string
+	Ability           Ability
+	MarkAbilityUsed   bool
+	ResetResurrection bool
+	ClampRemaining    bool
+}
+
 // CaptureContext mirrors the data supplied when a capture occurs during a
 // segment.
 type CaptureContext struct {
@@ -97,12 +190,14 @@ const (
 // invocations within a single Move() call. The structs are reused to avoid
 // repeated allocations while ensuring callers reset the cache between moves.
 type abilityContextCache struct {
-	stepBudget StepBudgetContext
-	phase      PhaseContext
-	move       MoveLifecycleContext
-	segment    SegmentContext
-	capture    CaptureContext
-	turnEnd    TurnEndContext
+	stepBudget      StepBudgetContext
+	phase           PhaseContext
+	move            MoveLifecycleContext
+	segment         SegmentContext
+	segmentPrep     SegmentPreparationContext
+	segmentResolved SegmentResolutionContext
+	capture         CaptureContext
+	turnEnd         TurnEndContext
 }
 
 // clear zeroes the cached contexts so subsequent moves cannot observe stale
@@ -125,6 +220,12 @@ func (c abilityContextCache) usage() map[string]bool {
 	}
 	if c.segment.Engine != nil || c.segment.Move != nil || c.segment.Segment.Capture != nil {
 		usage["segment"] = true
+	}
+	if c.segmentPrep.Engine != nil || c.segmentPrep.Move != nil || c.segmentPrep.StepCost != nil {
+		usage["segmentPrep"] = true
+	}
+	if c.segmentResolved.Engine != nil || c.segmentResolved.Move != nil || c.segmentResolved.StepsConsumed != 0 {
+		usage["segmentResolved"] = true
 	}
 	if c.capture.Engine != nil || c.capture.Attacker != nil || c.capture.Victim != nil {
 		usage["capture"] = true

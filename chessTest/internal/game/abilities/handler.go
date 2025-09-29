@@ -42,8 +42,11 @@ type HandlerFuncs struct {
 	CanPhaseFunc           func(game.PhaseContext) (bool, error)
 	OnMoveStartFunc        func(game.MoveLifecycleContext) error
 	OnSegmentStartFunc     func(game.SegmentContext) error
+	PrepareSegmentFunc     func(*game.SegmentPreparationContext) error
+	OnSegmentResolvedFunc  func(game.SegmentResolutionContext) error
 	OnCaptureFunc          func(game.CaptureContext) error
 	OnTurnEndFunc          func(game.TurnEndContext) error
+	PlanSpecialMoveFunc    func(*game.SpecialMoveContext) (game.SpecialMovePlan, bool, error)
 }
 
 // StepBudgetModifier invokes the configured modifier hook if present.
@@ -78,6 +81,22 @@ func (hf HandlerFuncs) OnSegmentStart(ctx game.SegmentContext) error {
 	return hf.OnSegmentStartFunc(ctx)
 }
 
+// PrepareSegment invokes the configured segment-preparation hook if present.
+func (hf HandlerFuncs) PrepareSegment(ctx *game.SegmentPreparationContext) error {
+	if hf.PrepareSegmentFunc == nil {
+		return nil
+	}
+	return hf.PrepareSegmentFunc(ctx)
+}
+
+// OnSegmentResolved invokes the configured post-segment hook if present.
+func (hf HandlerFuncs) OnSegmentResolved(ctx game.SegmentResolutionContext) error {
+	if hf.OnSegmentResolvedFunc == nil {
+		return nil
+	}
+	return hf.OnSegmentResolvedFunc(ctx)
+}
+
 // OnCapture invokes the configured capture hook if present.
 func (hf HandlerFuncs) OnCapture(ctx game.CaptureContext) error {
 	if hf.OnCaptureFunc == nil {
@@ -92,6 +111,14 @@ func (hf HandlerFuncs) OnTurnEnd(ctx game.TurnEndContext) error {
 		return nil
 	}
 	return hf.OnTurnEndFunc(ctx)
+}
+
+// PlanSpecialMove invokes the configured special-move planner if present.
+func (hf HandlerFuncs) PlanSpecialMove(ctx *game.SpecialMoveContext) (game.SpecialMovePlan, bool, error) {
+	if hf.PlanSpecialMoveFunc == nil {
+		return game.SpecialMovePlan{}, false, nil
+	}
+	return hf.PlanSpecialMoveFunc(ctx)
 }
 
 var (

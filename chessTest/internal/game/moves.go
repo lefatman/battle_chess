@@ -296,6 +296,42 @@ func (e *Engine) dispatchMoveStartHandlers(req MoveRequest, meta SegmentMetadata
 	})
 }
 
+func (e *Engine) dispatchSegmentPreparationHandlers(from, to Square, meta SegmentMetadata, step int, stepCost *int) error {
+	if e.currentMove == nil {
+		return nil
+	}
+	budget := e.currentMove.RemainingSteps
+	ctx := &e.abilityCtx.segmentPrep
+	*ctx = SegmentPreparationContext{
+		Engine:      e,
+		Move:        e.currentMove,
+		From:        from,
+		To:          to,
+		Segment:     meta,
+		SegmentStep: step,
+		StepCost:    stepCost,
+		StepBudget:  &budget,
+	}
+	defer func() {
+		e.abilityCtx.segmentPrep = SegmentPreparationContext{}
+	}()
+	if err := e.forEachActiveHandler(func(_ Ability, handler AbilityHandler) error {
+		preparer, ok := handler.(SegmentPreparationHandler)
+		if !ok {
+			return nil
+		}
+		return preparer.PrepareSegment(ctx)
+	}); err != nil {
+		return err
+	}
+	if ctx.StepBudget != nil {
+		e.currentMove.RemainingSteps = *ctx.StepBudget
+	} else {
+		e.currentMove.RemainingSteps = budget
+	}
+	return nil
+}
+
 func (e *Engine) dispatchSegmentStartHandlers(from, to Square, meta SegmentMetadata, step int) error {
 	if e.currentMove == nil {
 		return nil
@@ -314,6 +350,32 @@ func (e *Engine) dispatchSegmentStartHandlers(from, to Square, meta SegmentMetad
 	}()
 	return e.forEachActiveHandler(func(_ Ability, handler AbilityHandler) error {
 		return handler.OnSegmentStart(*ctx)
+	})
+}
+
+func (e *Engine) dispatchSegmentResolvedHandlers(from, to Square, meta SegmentMetadata, step int, cost int) error {
+	if e.currentMove == nil {
+		return nil
+	}
+	ctx := &e.abilityCtx.segmentResolved
+	*ctx = SegmentResolutionContext{
+		Engine:        e,
+		Move:          e.currentMove,
+		From:          from,
+		To:            to,
+		Segment:       meta,
+		SegmentStep:   step,
+		StepsConsumed: cost,
+	}
+	defer func() {
+		e.abilityCtx.segmentResolved = SegmentResolutionContext{}
+	}()
+	return e.forEachActiveHandler(func(_ Ability, handler AbilityHandler) error {
+		resolver, ok := handler.(SegmentResolutionHandler)
+		if !ok {
+			return nil
+		}
+		return resolver.OnSegmentResolved(*ctx)
 	})
 }
 
@@ -636,15 +698,6 @@ func (e *Engine) continueMove(req MoveRequest) error {
 	}
 
 	stepsNeeded := e.calculateMovementCost(pc, from, to)
-	if stepsNeeded > e.currentMove.RemainingSteps {
-		return fmt.Errorf("insufficient steps: %d needed, %d remaining", stepsNeeded, e.currentMove.RemainingSteps)
-	}
-
-	if pc.Abilities.Contains(AbilityResurrection) && e.currentMove.abilityFlag(AbilityResurrection, abilityFlagWindow) {
-		e.currentMove.setAbilityFlag(AbilityResurrection, abilityFlagWindow, false)
-		e.currentMove.setAbilityCounter(AbilityResurrection, abilityFlagWindow, 0)
-	}
-
 	target := e.board.pieceAt[to]
 	if target != nil && target.Color == pc.Color {
 		return errors.New("cannot capture a friendly piece")
@@ -679,6 +732,27 @@ func (e *Engine) continueMove(req MoveRequest) error {
 		}
 	}
 
+	segmentStep := len(e.currentMove.Path) - 1
+	if segmentStep < 0 {
+		segmentStep = 0
+	}
+
+	meta := segmentCtx.metadata()
+	if err := e.dispatchSegmentPreparationHandlers(from, to, meta, segmentStep, &stepsNeeded); err != nil {
+		e.currentMove = nil
+		e.abilityCtx.clear()
+		return err
+	}
+
+	if stepsNeeded > e.currentMove.RemainingSteps {
+		return fmt.Errorf("insufficient steps: %d needed, %d remaining", stepsNeeded, e.currentMove.RemainingSteps)
+	}
+
+	if len(e.handlersForAbility(AbilityResurrection)) == 0 && pc.Abilities.Contains(AbilityResurrection) && e.currentMove.abilityFlag(AbilityResurrection, abilityFlagWindow) {
+		e.currentMove.setAbilityFlag(AbilityResurrection, abilityFlagWindow, false)
+		e.currentMove.setAbilityCounter(AbilityResurrection, abilityFlagWindow, 0)
+	}
+
 	// Continuation is valid, push state and execute.
 	delta := e.pushHistory()
 	defer e.finalizeHistory(delta)
@@ -689,11 +763,7 @@ func (e *Engine) continueMove(req MoveRequest) error {
 		e.recordSquareForUndo(segmentCtx.captureSquare)
 	}
 	e.currentMove.RemainingSteps -= stepsNeeded
-	segmentStep := len(e.currentMove.Path) - 1
-	if segmentStep < 0 {
-		segmentStep = 0
-	}
-	if err := e.dispatchSegmentStartHandlers(from, to, segmentCtx.metadata(), segmentStep); err != nil {
+	if err := e.dispatchSegmentStartHandlers(from, to, meta, segmentStep); err != nil {
 		e.currentMove = nil
 		e.abilityCtx.clear()
 		return err
@@ -701,9 +771,14 @@ func (e *Engine) continueMove(req MoveRequest) error {
 	e.executeMoveSegment(from, to, segmentCtx)
 	e.currentMove.Path = append(e.currentMove.Path, to)
 	e.handlePostSegment(pc, from, to, segmentCtx.capture)
+	if err := e.dispatchSegmentResolvedHandlers(from, to, meta, segmentStep, stepsNeeded); err != nil {
+		e.currentMove = nil
+		e.abilityCtx.clear()
+		return err
+	}
 
 	if segmentCtx.capture != nil {
-		e.currentMove.registerCapture(segmentCtx.metadata())
+		e.currentMove.registerCapture(meta)
 		if err := e.dispatchCaptureHandlers(pc, segmentCtx.capture, segmentCtx.captureSquare, segmentStep); err != nil {
 			e.currentMove = nil
 			e.abilityCtx.clear()
@@ -735,6 +810,59 @@ func (e *Engine) continueMove(req MoveRequest) error {
 func (e *Engine) trySideStepNudge(pc *Piece, from, to Square) (bool, error) {
 	if e.currentMove == nil || pc == nil {
 		return false, nil
+	}
+	if handlers := e.handlersForAbility(AbilitySideStep); len(handlers) > 0 {
+		segmentStep := len(e.currentMove.Path) - 1
+		if segmentStep < 0 {
+			segmentStep = 0
+		}
+		ctx := &e.abilityCtx.segment
+		// Reuse the cached segment context slot to avoid a new allocation
+		// while building the special-move planning request.
+		*ctx = SegmentContext{
+			Engine:      e,
+			Move:        e.currentMove,
+			From:        from,
+			To:          to,
+			SegmentStep: segmentStep,
+		}
+		planCtx := SpecialMoveContext{
+			Engine:      e,
+			Move:        e.currentMove,
+			Piece:       pc,
+			From:        from,
+			To:          to,
+			Ability:     AbilitySideStep,
+			SegmentStep: segmentStep,
+		}
+		defer func() {
+			e.abilityCtx.segment = SegmentContext{}
+		}()
+		for _, handler := range handlers {
+			planner, ok := handler.(SpecialMoveHandler)
+			if !ok {
+				continue
+			}
+			plan, handled, err := planner.PlanSpecialMove(&planCtx)
+			if err != nil {
+				e.currentMove = nil
+				e.abilityCtx.clear()
+				return true, err
+			}
+			if !handled {
+				continue
+			}
+			if plan.MarkAbilityUsed && plan.Ability == AbilityNone {
+				plan.Ability = AbilitySideStep
+			}
+			if plan.Action == SpecialMoveActionNone {
+				plan.Action = SpecialMoveActionMove
+			}
+			if plan.StepCost < 0 {
+				plan.StepCost = 0
+			}
+			return true, e.executeSpecialMovePlan(pc, from, to, plan)
+		}
 	}
 	if !pc.Abilities.Contains(AbilitySideStep) || e.currentMove.abilityUsed(AbilitySideStep) || e.currentMove.RemainingSteps <= 0 {
 		return false, nil
@@ -769,6 +897,12 @@ func (e *Engine) trySideStepNudge(pc *Piece, from, to Square) (bool, error) {
 	e.currentMove.Path = append(e.currentMove.Path, to)
 	e.handlePostSegment(pc, from, to, nil)
 
+	if err := e.dispatchSegmentResolvedHandlers(from, to, segmentCtx.metadata(), segmentStep, 1); err != nil {
+		e.currentMove = nil
+		e.abilityCtx.clear()
+		return true, err
+	}
+
 	if e.currentMove != nil {
 		if pc.Abilities.Contains(AbilityResurrection) {
 			e.currentMove.setAbilityFlag(AbilityResurrection, abilityFlagWindow, false)
@@ -792,6 +926,46 @@ func (e *Engine) trySideStepNudge(pc *Piece, from, to Square) (bool, error) {
 func (e *Engine) tryQuantumStep(pc *Piece, from, to Square) (bool, error) {
 	if e.currentMove == nil || pc == nil {
 		return false, nil
+	}
+	if handlers := e.handlersForAbility(AbilityQuantumStep); len(handlers) > 0 {
+		segmentStep := len(e.currentMove.Path) - 1
+		if segmentStep < 0 {
+			segmentStep = 0
+		}
+		planCtx := SpecialMoveContext{
+			Engine:      e,
+			Move:        e.currentMove,
+			Piece:       pc,
+			From:        from,
+			To:          to,
+			Ability:     AbilityQuantumStep,
+			SegmentStep: segmentStep,
+		}
+		for _, handler := range handlers {
+			planner, ok := handler.(SpecialMoveHandler)
+			if !ok {
+				continue
+			}
+			plan, handled, err := planner.PlanSpecialMove(&planCtx)
+			if err != nil {
+				e.currentMove = nil
+				e.abilityCtx.clear()
+				return true, err
+			}
+			if !handled {
+				continue
+			}
+			if plan.MarkAbilityUsed && plan.Ability == AbilityNone {
+				plan.Ability = AbilityQuantumStep
+			}
+			if plan.Action == SpecialMoveActionNone {
+				plan.Action = SpecialMoveActionMove
+			}
+			if plan.StepCost < 0 {
+				plan.StepCost = 0
+			}
+			return true, e.executeSpecialMovePlan(pc, from, to, plan)
+		}
 	}
 	if !pc.Abilities.Contains(AbilityQuantumStep) || e.currentMove.abilityUsed(AbilityQuantumStep) || e.currentMove.RemainingSteps <= 0 {
 		return false, nil
@@ -838,6 +1012,12 @@ func (e *Engine) tryQuantumStep(pc *Piece, from, to Square) (bool, error) {
 	e.currentMove.Path = append(e.currentMove.Path, to)
 	e.handlePostSegment(pc, from, to, nil)
 
+	if err := e.dispatchSegmentResolvedHandlers(from, to, segmentCtx.metadata(), segmentStep, 1); err != nil {
+		e.currentMove = nil
+		e.abilityCtx.clear()
+		return true, err
+	}
+
 	if e.checkPostCaptureTermination(pc, nil) {
 		e.endTurn()
 		return true, nil
@@ -852,6 +1032,115 @@ func (e *Engine) tryQuantumStep(pc *Piece, from, to Square) (bool, error) {
 	}
 
 	return true, nil
+}
+
+func (e *Engine) executeSpecialMovePlan(pc *Piece, from, to Square, plan SpecialMovePlan) error {
+	if e.currentMove == nil {
+		return errors.New("no active move to continue")
+	}
+	stepsNeeded := plan.StepCost
+	if stepsNeeded < 0 {
+		stepsNeeded = 0
+	}
+	if stepsNeeded > e.currentMove.RemainingSteps {
+		return fmt.Errorf("insufficient steps: %d needed, %d remaining", stepsNeeded, e.currentMove.RemainingSteps)
+	}
+
+	delta := e.pushHistory()
+	defer e.finalizeHistory(delta)
+
+	e.recordSquareForUndo(from)
+	e.recordSquareForUndo(to)
+	if plan.Metadata.Capture != nil {
+		e.recordSquareForUndo(plan.Metadata.CaptureSquare)
+	}
+
+	e.currentMove.RemainingSteps -= stepsNeeded
+	if plan.ClampRemaining && e.currentMove.RemainingSteps < 0 {
+		e.currentMove.RemainingSteps = 0
+	}
+	if plan.MarkAbilityUsed && plan.Ability != AbilityNone {
+		e.currentMove.markAbilityUsed(plan.Ability)
+	}
+	if plan.ResetResurrection && pc != nil && pc.Abilities.Contains(AbilityResurrection) {
+		e.currentMove.setAbilityFlag(AbilityResurrection, abilityFlagWindow, false)
+		e.currentMove.setAbilityCounter(AbilityResurrection, abilityFlagWindow, 0)
+	}
+
+	segmentStep := len(e.currentMove.Path) - 1
+	if segmentStep < 0 {
+		segmentStep = 0
+	}
+
+	segmentCtx := moveSegmentContext{
+		capture:       plan.Metadata.Capture,
+		captureSquare: plan.Metadata.CaptureSquare,
+		enPassant:     plan.Metadata.EnPassant,
+	}
+	meta := segmentCtx.metadata()
+
+	if err := e.dispatchSegmentStartHandlers(from, to, meta, segmentStep); err != nil {
+		e.currentMove = nil
+		e.abilityCtx.clear()
+		return err
+	}
+
+	switch plan.Action {
+	case SpecialMoveActionSwap:
+		if plan.SwapWith == nil {
+			e.currentMove = nil
+			e.abilityCtx.clear()
+			return errors.New("invalid special move plan: missing swap target")
+		}
+		e.performQuantumSwap(pc, plan.SwapWith, from, to)
+	default:
+		e.executeMoveSegment(from, to, segmentCtx)
+	}
+
+	e.currentMove.Path = append(e.currentMove.Path, to)
+	e.handlePostSegment(pc, from, to, plan.Metadata.Capture)
+
+	if err := e.dispatchSegmentResolvedHandlers(from, to, meta, segmentStep, stepsNeeded); err != nil {
+		e.currentMove = nil
+		e.abilityCtx.clear()
+		return err
+	}
+
+	if plan.Note != "" {
+		appendAbilityNote(&e.board.lastNote, plan.Note)
+	}
+
+	if plan.Metadata.Capture != nil {
+		e.currentMove.registerCapture(meta)
+		if err := e.dispatchCaptureHandlers(pc, plan.Metadata.Capture, plan.Metadata.CaptureSquare, segmentStep); err != nil {
+			e.currentMove = nil
+			e.abilityCtx.clear()
+			return err
+		}
+		if err := e.ResolveCaptureAbility(pc, plan.Metadata.Capture, plan.Metadata.CaptureSquare); err != nil {
+			e.currentMove = nil
+			e.abilityCtx.clear()
+			return err
+		}
+		if !e.currentMove.canCaptureMore() {
+			e.endTurn()
+			return nil
+		}
+	}
+
+	if e.checkPostCaptureTermination(pc, plan.Metadata.Capture) {
+		e.endTurn()
+		return nil
+	}
+	if e.currentMove == nil {
+		return nil
+	}
+	if e.currentMove.RemainingSteps <= 0 && !e.hasFreeContinuation(pc) {
+		e.endTurn()
+	} else {
+		appendAbilityNote(&e.board.lastNote, fmt.Sprintf("%d steps remaining", e.currentMove.RemainingSteps))
+	}
+	return nil
 }
 
 func (e *Engine) validateQuantumStep(pc *Piece, from, to Square) (*Piece, bool) {
