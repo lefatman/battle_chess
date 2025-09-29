@@ -321,43 +321,66 @@ func (e *Engine) State() BoardState {
 
 // ResolveCaptureAbility handles special ability triggers on capture.
 func (e *Engine) ResolveCaptureAbility(attacker, victim *Piece, captureSquare Square) error {
-	if victim != nil && victim.Abilities.Contains(AbilityDoOver) && !e.pendingDoOver[victim.ID] {
-		plies := 4
-		if plies > len(e.history) {
-			plies = len(e.history)
-		}
-		if plies > 0 {
-			e.popHistory(plies)
-			victim.Abilities = victim.Abilities.Without(AbilityDoOver)
-			e.pendingDoOver[victim.ID] = true
-			e.board.lastNote = fmt.Sprintf("DoOver: %s %s rewound %d plies (%.1f turns)",
-				victim.Color, victim.Type, plies, float64(plies)/2.0)
-			return ErrDoOverActivated
-		}
-		victim.Abilities = victim.Abilities.Without(AbilityDoOver)
-		e.pendingDoOver[victim.ID] = true
+	if victim == nil {
+		return nil
 	}
+	if err := e.maybeTriggerDoOver(victim); err != nil {
+		return err
+	}
+
+	victimRank := rankOf(victim.Type)
+	victimColor := victim.Color
 
 	extraRemoved := false
 	if attacker != nil && attacker.Abilities.Contains(AbilityDoubleKill) {
-		if note, removed := e.trySmartExtraCapture(captureSquare, victim.Color, rankOf(victim.Type)); removed {
-			extraRemoved = true
-			appendAbilityNote(&e.board.lastNote, "DoubleKill: "+note)
-		}
-	}
-
-	if !extraRemoved && attacker != nil {
-		if elementOf(e, attacker) == ElementFire && attacker.Abilities.Contains(AbilityScorch) {
-			if note, removed := e.trySmartExtraCapture(captureSquare, victim.Color, rankOf(victim.Type)); removed {
-				appendAbilityNote(&e.board.lastNote, "Fire Scorch: "+note)
+		if target := e.trySmartExtraCapture(attacker, captureSquare, victimColor, victimRank); target != nil {
+			targetSquare := target.Square
+			if removed, err := e.attemptAbilityRemoval(attacker, target); err != nil {
+				return err
+			} else if removed {
+				appendAbilityNote(&e.board.lastNote, fmt.Sprintf("DoubleKill: removed %s %s at %s", target.Color, target.Type, targetSquare))
+				extraRemoved = true
 			}
 		}
 	}
+
+	if !extraRemoved && attacker != nil && elementOf(e, attacker) == ElementFire && attacker.Abilities.Contains(AbilityScorch) {
+		if target := e.trySmartExtraCapture(attacker, captureSquare, victimColor, victimRank); target != nil {
+			targetSquare := target.Square
+			if removed, err := e.attemptAbilityRemoval(attacker, target); err != nil {
+				return err
+			} else if removed {
+				appendAbilityNote(&e.board.lastNote, fmt.Sprintf("Fire Scorch: removed %s %s at %s", target.Color, target.Type, targetSquare))
+			}
+		}
+	}
+
+	if attacker != nil && e.currentMove != nil && e.currentMove.HasQuantumKill && !e.currentMove.QuantumKillUsed {
+		e.currentMove.QuantumKillUsed = true
+		if target := e.findQuantumKillTarget(attacker, victimColor, victimRank); target != nil {
+			targetSquare := target.Square
+			if removed, err := e.attemptAbilityRemoval(attacker, target); err != nil {
+				return err
+			} else if removed {
+				appendAbilityNote(&e.board.lastNote, fmt.Sprintf("Quantum Kill: removed %s %s at %s", target.Color, target.Type, targetSquare))
+				if echo := e.trySmartExtraCapture(attacker, targetSquare, victimColor, rankOf(target.Type)); echo != nil {
+					echoSquare := echo.Square
+					if removedEcho, err := e.attemptAbilityRemoval(attacker, echo); err != nil {
+						return err
+					} else if removedEcho {
+						appendAbilityNote(&e.board.lastNote, fmt.Sprintf("Quantum Echo: removed %s %s at %s", echo.Color, echo.Type, echoSquare))
+					}
+				}
+			}
+		}
+	}
+
+	e.applyCapturePenalties(attacker)
 	return nil
 }
 
-// trySmartExtraCapture scans neighbors and removes the highest-rank, eligible, lower-rank piece.
-func (e *Engine) trySmartExtraCapture(captureSquare Square, victimColor Color, victimRank int) (string, bool) {
+// trySmartExtraCapture scans neighbors and identifies the highest-rank, eligible, lower-rank piece.
+func (e *Engine) trySmartExtraCapture(attacker *Piece, captureSquare Square, victimColor Color, victimRank int) *Piece {
 	var bestP *Piece
 	bestRank := -1
 
@@ -374,6 +397,9 @@ func (e *Engine) trySmartExtraCapture(captureSquare Square, victimColor Color, v
 		if p == nil || p.Color != victimColor {
 			continue
 		}
+		if !e.canAbilityRemove(attacker, p) {
+			continue
+		}
 		if elementOf(e, p) == ElementEarth || p.Abilities.Contains(AbilityObstinant) || e.abilities[p.Color].Contains(AbilityObstinant) {
 			continue
 		}
@@ -384,12 +410,104 @@ func (e *Engine) trySmartExtraCapture(captureSquare Square, victimColor Color, v
 		}
 	}
 
-	if bestP == nil {
-		return "", false
+	return bestP
+}
+
+func (e *Engine) maybeTriggerDoOver(victim *Piece) error {
+	if victim == nil || !victim.Abilities.Contains(AbilityDoOver) || e.pendingDoOver[victim.ID] {
+		return nil
 	}
 
-	e.removePiece(bestP, bestP.Square)
-	return fmt.Sprintf("removed %s %s at %s", bestP.Color, bestP.Type, bestP.Square), true
+	plies := 4
+	if plies > len(e.history) {
+		plies = len(e.history)
+	}
+	if plies > 0 {
+		e.popHistory(plies)
+		victim.Abilities = victim.Abilities.Without(AbilityDoOver)
+		e.pendingDoOver[victim.ID] = true
+		e.board.lastNote = fmt.Sprintf("DoOver: %s %s rewound %d plies (%.1f turns)", victim.Color, victim.Type, plies, float64(plies)/2.0)
+		return ErrDoOverActivated
+	}
+
+	victim.Abilities = victim.Abilities.Without(AbilityDoOver)
+	e.pendingDoOver[victim.ID] = true
+	return nil
+}
+
+func (e *Engine) canAbilityRemove(attacker, target *Piece) bool {
+	if target == nil {
+		return false
+	}
+	if target.Type == King {
+		return false
+	}
+	if target.Abilities.Contains(AbilityIndomitable) {
+		return false
+	}
+	if target.Abilities.Contains(AbilityStalwart) && attacker != nil && rankOf(attacker.Type) < rankOf(target.Type) {
+		return false
+	}
+	return true
+}
+
+func (e *Engine) attemptAbilityRemoval(attacker, target *Piece) (bool, error) {
+	if target == nil || !e.canAbilityRemove(attacker, target) {
+		return false, nil
+	}
+
+	e.removePiece(target, target.Square)
+	if err := e.maybeTriggerDoOver(target); err != nil {
+		return true, err
+	}
+	return true, nil
+}
+
+func (e *Engine) findQuantumKillTarget(attacker *Piece, victimColor Color, maxRank int) *Piece {
+	var best *Piece
+	bestRank := -1
+	bestIndex := 65
+
+	for idx, p := range e.board.pieceAt {
+		if p == nil || p.Color != victimColor {
+			continue
+		}
+		rank := rankOf(p.Type)
+		if rank > maxRank {
+			continue
+		}
+		if !e.canAbilityRemove(attacker, p) {
+			continue
+		}
+		if rank > bestRank || (rank == bestRank && idx < bestIndex) {
+			best = p
+			bestRank = rank
+			bestIndex = idx
+		}
+	}
+
+	return best
+}
+
+func (e *Engine) applyCapturePenalties(attacker *Piece) {
+	if e.currentMove == nil || attacker == nil {
+		return
+	}
+
+	element := elementOf(e, attacker)
+	if attacker.Abilities.Contains(AbilityPoisonousMeat) && element != ElementShadow {
+		if e.currentMove.RemainingSteps > 0 {
+			e.currentMove.RemainingSteps--
+			appendAbilityNote(&e.board.lastNote, "Poisonous Meat drains 1 step")
+		}
+	}
+
+	if attacker.Abilities.Contains(AbilityOverload) && element == ElementLightning && attacker.Abilities.Contains(AbilityStalwart) {
+		if e.currentMove.RemainingSteps > 0 {
+			e.currentMove.RemainingSteps--
+			appendAbilityNote(&e.board.lastNote, "Overload + Stalwart costs 1 step")
+		}
+	}
 }
 
 // ---------------------------
@@ -723,24 +841,29 @@ func (e *Engine) generateMoves(pc *Piece) Bitboard {
 		return 0
 	}
 
+	var moves Bitboard
 	switch pc.Type {
 	case Pawn:
-		return e.generatePawnMoves(pc)
+		moves = e.generatePawnMoves(pc)
 	case Knight:
-		return e.generateKnightMoves(pc)
+		moves = e.generateKnightMoves(pc)
 	case Bishop:
-		return e.generateSlidingMoves(pc, bishopDirections[:])
+		moves = e.generateSlidingMoves(pc, bishopDirections[:])
 	case Rook:
-		return e.generateSlidingMoves(pc, rookDirections[:])
+		moves = e.generateSlidingMoves(pc, rookDirections[:])
 	case Queen:
-		moves := e.generateSlidingMoves(pc, rookDirections[:])
+		moves = e.generateSlidingMoves(pc, rookDirections[:])
 		moves |= e.generateSlidingMoves(pc, bishopDirections[:])
-		return moves
 	case King:
-		return e.generateKingMoves(pc)
+		moves = e.generateKingMoves(pc)
 	default:
-		return 0
+		moves = 0
 	}
+
+	if pc.Abilities.Contains(AbilityScatterShot) {
+		moves = e.addScatterShotCaptures(pc, moves)
+	}
+	return moves
 }
 
 func (e *Engine) generatePawnMoves(pc *Piece) Bitboard {
@@ -748,6 +871,7 @@ func (e *Engine) generatePawnMoves(pc *Piece) Bitboard {
 
 	rank := pc.Square.Rank()
 	file := pc.Square.File()
+	from := pc.Square
 	dir := 1
 	startRank := 1
 
@@ -771,7 +895,7 @@ func (e *Engine) generatePawnMoves(pc *Piece) Bitboard {
 		captureRank := rank + dir
 		captureFile := file + df
 		if target, ok := shared.SquareFromCoords(captureRank, captureFile); ok {
-			if victim := e.board.pieceAt[target]; victim != nil && victim.Color != pc.Color {
+			if victim := e.board.pieceAt[target]; victim != nil && victim.Color != pc.Color && e.canDirectCapture(pc, victim, from, target) {
 				moves = moves.Add(target)
 			}
 		}
@@ -784,10 +908,12 @@ func (e *Engine) generateKnightMoves(pc *Piece) Bitboard {
 	var moves Bitboard
 	rank := pc.Square.Rank()
 	file := pc.Square.File()
+	from := pc.Square
 
 	for _, delta := range knightOffsets {
 		if target, ok := shared.SquareFromCoords(rank+delta.dr, file+delta.df); ok {
-			if occupant := e.board.pieceAt[target]; occupant == nil || occupant.Color != pc.Color {
+			occupant := e.board.pieceAt[target]
+			if occupant == nil || (occupant.Color != pc.Color && e.canDirectCapture(pc, occupant, from, target)) {
 				moves = moves.Add(target)
 			}
 		}
@@ -799,10 +925,12 @@ func (e *Engine) generateKingMoves(pc *Piece) Bitboard {
 	var moves Bitboard
 	rank := pc.Square.Rank()
 	file := pc.Square.File()
+	from := pc.Square
 
 	for _, delta := range kingOffsets {
 		if target, ok := shared.SquareFromCoords(rank+delta.dr, file+delta.df); ok {
-			if occupant := e.board.pieceAt[target]; occupant == nil || occupant.Color != pc.Color {
+			occupant := e.board.pieceAt[target]
+			if occupant == nil || (occupant.Color != pc.Color && e.canDirectCapture(pc, occupant, from, target)) {
 				moves = moves.Add(target)
 			}
 		}
@@ -814,6 +942,7 @@ func (e *Engine) generateSlidingMoves(pc *Piece, directions []moveDelta) Bitboar
 	var moves Bitboard
 	startRank := pc.Square.Rank()
 	startFile := pc.Square.File()
+	from := pc.Square
 
 	for _, delta := range directions {
 		rank := startRank + delta.dr
@@ -824,7 +953,7 @@ func (e *Engine) generateSlidingMoves(pc *Piece, directions []moveDelta) Bitboar
 				if occupant == nil {
 					moves = moves.Add(target)
 				} else {
-					if occupant.Color != pc.Color {
+					if occupant.Color != pc.Color && e.canDirectCapture(pc, occupant, from, target) {
 						moves = moves.Add(target)
 					}
 					break
@@ -834,6 +963,21 @@ func (e *Engine) generateSlidingMoves(pc *Piece, directions []moveDelta) Bitboar
 				continue
 			}
 			break
+		}
+	}
+	return moves
+}
+
+func (e *Engine) addScatterShotCaptures(pc *Piece, moves Bitboard) Bitboard {
+	from := pc.Square
+	rank := from.Rank()
+	file := from.File()
+	for _, df := range []int{-1, 1} {
+		if target, ok := shared.SquareFromCoords(rank, file+df); ok {
+			occupant := e.board.pieceAt[target]
+			if occupant != nil && occupant.Color != pc.Color && e.canDirectCapture(pc, occupant, from, target) {
+				moves = moves.Add(target)
+			}
 		}
 	}
 	return moves

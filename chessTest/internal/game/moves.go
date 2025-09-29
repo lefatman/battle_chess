@@ -30,6 +30,7 @@ type MoveState struct {
 	ResurrectionQueue     []*Piece
 	MaxCaptures           int
 	LastSegmentCaptured   bool
+	QuantumKillUsed       bool
 }
 
 func (ms *MoveState) canCaptureMore() bool {
@@ -342,13 +343,6 @@ func (e *Engine) calculateStepBudget(pc *Piece) int {
 			bonus++ // Interaction bonus with Side Step
 		}
 	}
-	if pc.Abilities.Contains(AbilityPoisonousMeat) {
-		bonus-- // Poisonous Meat costs 1 step
-		if element == ElementShadow {
-			bonus++ // Shadow affinity negates the penalty
-		}
-	}
-
 	// TODO: Add slow penalty from Temporal Lock
 	// slowPenalty := 0
 	// if slowAmount, ok := e.slowedPieces[pc.ID]; ok { ... }
@@ -683,9 +677,39 @@ func (e *Engine) pathIsPassable(pc *Piece, from, to Square) bool {
 		if !canPhase {
 			return false
 		}
-		if occupant.Abilities.Contains(AbilityIndomitable) {
+		if occupant.Abilities.Contains(AbilityIndomitable) || occupant.Abilities.Contains(AbilityStalwart) {
 			return false
 		}
+	}
+	return true
+}
+
+func isScatterShotCapture(pc *Piece, from, to Square) bool {
+	if pc == nil || !pc.Abilities.Contains(AbilityScatterShot) {
+		return false
+	}
+	if from.Rank() != to.Rank() {
+		return false
+	}
+	fileDiff := from.File() - to.File()
+	if fileDiff < 0 {
+		fileDiff = -fileDiff
+	}
+	return fileDiff == 1
+}
+
+func (e *Engine) canDirectCapture(attacker, defender *Piece, from, to Square) bool {
+	if defender == nil {
+		return true
+	}
+	if attacker == nil {
+		return false
+	}
+	if defender.Abilities.Contains(AbilityStalwart) && rankOf(attacker.Type) < rankOf(defender.Type) {
+		return false
+	}
+	if isScatterShotCapture(attacker, from, to) && defender.Abilities.Contains(AbilityIndomitable) {
+		return false
 	}
 	return true
 }
@@ -699,6 +723,10 @@ func (e *Engine) isLegalFirstSegment(pc *Piece, from, to Square) bool {
 		return false
 	}
 	if !e.pathIsPassable(pc, from, to) {
+		return false
+	}
+	target := e.board.pieceAt[to]
+	if !e.canDirectCapture(pc, target, from, to) {
 		return false
 	}
 	return true
@@ -715,5 +743,8 @@ func (e *Engine) isLegalContinuation(pc *Piece, from, to Square) bool {
 	// For normal continuations, movement rules are more restrictive.
 	// This could be, for example, continuing a slide in the same direction.
 	// For simplicity, we'll allow any legal move for now.
-	return e.isLegalFirstSegment(pc, from, to)
+	if !e.isLegalFirstSegment(pc, from, to) {
+		return false
+	}
+	return true
 }
