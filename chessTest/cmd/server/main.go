@@ -10,7 +10,8 @@ import (
 	"strings"
 
 	// Adjust these imports to your actual module paths if different.
-	"battle_chess_poc/internal/game"   // your engine: NewEngine(), SetSideConfig(...), etc.
+	"battle_chess_poc/internal/game" // your engine: NewEngine(), SetSideConfig(...), etc.
+	_ "battle_chess_poc/internal/game/abilities"
 	"battle_chess_poc/internal/httpx"  // your HTTP server wrapper exposing Listen(engine) or similar
 	"battle_chess_poc/internal/shared" // enums + parsers (Ability, Element, ParseAbility/ParseElement, *Strings)  // <-- from abilities.go/types.go
 )

@@ -202,9 +202,31 @@ func (e *Engine) isPathClear(from, to Square) bool {
 	return true
 }
 
-func (e *Engine) canPhaseThrough(pc *Piece, _ Square, _ Square) bool {
+func (e *Engine) canPhaseThrough(pc *Piece, from Square, to Square) bool {
 	if pc == nil {
 		return false
+	}
+
+	if handlers := e.activeHandlers(); len(handlers) > 0 {
+		ctx := &e.abilityCtx.phase
+		*ctx = PhaseContext{Engine: e, Piece: pc, From: from, To: to}
+		defer func() {
+			e.abilityCtx.phase = PhaseContext{}
+		}()
+		for _, handlerList := range handlers {
+			for _, handler := range handlerList {
+				if handler == nil {
+					continue
+				}
+				allowed, err := handler.CanPhase(*ctx)
+				if err != nil {
+					continue
+				}
+				if allowed {
+					return true
+				}
+			}
+		}
 	}
 
 	hasFlood := pc.Abilities.Contains(AbilityFloodWake)

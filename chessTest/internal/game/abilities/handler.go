@@ -162,3 +162,16 @@ func registeredAbilities() []shared.Ability {
 	}
 	return out
 }
+
+func init() {
+	game.RegisterAbilityFactory(func(id game.Ability) (game.AbilityHandler, error) {
+		handler, err := New(shared.Ability(id))
+		if err != nil {
+			if errors.Is(err, ErrUnknownAbility) {
+				return nil, game.ErrAbilityNotRegistered
+			}
+			return nil, err
+		}
+		return handler, nil
+	})
+}
