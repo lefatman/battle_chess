@@ -160,6 +160,49 @@ Breaking `handlePostSegment` into discrete ability handlers implies the followin
 
 Centralising these behaviors inside ability-owned hooks ensures the core engine no longer needs to mutate `MoveState` fields directly for Flood Wake, Blaze Rush, or Mist Shroud while still providing `hasFreeContinuation` the same data it reads today.
 
+## Step budget ability audit
+
+### Ability + element modifiers
+
+`calculateStepBudget` grants or removes steps only when specific ability and element pairings are present on the acting piece. The current combinations are:
+
+| Ability | Required element | Net change | Notes |
+| --- | --- | --- | --- |
+| Scorch | Fire | +1 | Flat bonus with no additional interactions. 【F:chessTest/internal/game/moves.go†L552-L554】 |
+| Tailwind | Air | +2 | Applies before Temporal Lock’s slowdown check. 【F:chessTest/internal/game/moves.go†L555-L560】 |
+| Tailwind + Temporal Lock | Air | −1 (in addition to Tailwind’s +2) | Temporal Lock partially suppresses Tailwind, resulting in a net +1. 【F:chessTest/internal/game/moves.go†L555-L559】 |
+| Radiant Vision | Light | +1 | Grants a light-aligned bonus and enables the Mist Shroud combo. 【F:chessTest/internal/game/moves.go†L561-L565】 |
+| Radiant Vision + Mist Shroud | Light | +1 (stacking with Radiant Vision) | Adds a further bonus for the paired abilities, yielding +2 total. 【F:chessTest/internal/game/moves.go†L561-L565】 |
+| Umbral Step | Shadow | +2 | Shadow-aligned step surge that is later dampened by Radiant Vision. 【F:chessTest/internal/game/moves.go†L567-L571】 |
+| Umbral Step + Radiant Vision | Shadow | −1 (in addition to Umbral Step’s +2) | Cross-polarity pairing reduces the umbral bonus, leaving a net +1. 【F:chessTest/internal/game/moves.go†L567-L571】 |
+| Schrödinger’s Laugh | Any | +2 | Universal step bonus available without an element check. 【F:chessTest/internal/game/moves.go†L573-L575】 |
+| Schrödinger’s Laugh + Side Step | Any | +1 (stacking with Laugh) | Extra momentum when both abilities are present for +3 total. 【F:chessTest/internal/game/moves.go†L573-L577】 |
+
+All bonuses are summed with the one-step baseline, then the color’s stored Temporal Lock slow penalty is subtracted and cleared. The minimum budget is clamped to one step. 【F:chessTest/internal/game/moves.go†L547-L588】
+
+### Stacking vs. overrides in the handler model
+
+* **Tailwind × Temporal Lock** – Temporal Lock should continue to *stack* as an additive −1 modifier that applies only when Tailwind triggered. This preserves the existing net +1 and allows future slow sources to combine coherently.
+* **Radiant Vision × Mist Shroud** – The +1 combo should stack with Radiant Vision’s base bonus rather than overriding it so Mist Shroud can contribute meaningfully when both abilities are owned.
+* **Umbral Step × Radiant Vision** – Radiant Vision should remain an additional −1 modifier against Umbral Step’s +2 so the net benefit reflects the present day polarity tension.
+* **Schrödinger’s Laugh × Side Step** – Side Step should continue to provide an extra +1 on top of the universal +2 instead of replacing it, keeping the playful +3 spike intact.
+
+Future handlers should express the relationships above through additive contributions rather than mutually exclusive overrides so additional abilities can compose cleanly.
+
+### Handler step contribution data model
+
+To mirror today’s arithmetic, the step budget hook should expose a minimal accumulator structure:
+
+```go
+type StepBudget struct {
+    Base int // The guaranteed starting point (defaults to 1).
+    Bonus int // Sum of additive modifiers from abilities/elements.
+    GlobalPenalty int // Aggregate of stored slow tokens or other cross-piece taxes.
+}
+```
+
+Handlers would receive a mutable `StepBudget` and adjust `Bonus` (or `GlobalPenalty` for effects like Temporal Lock) while optionally editing `Base` if a future mechanic changes the minimum. After all handlers run, the engine computes `max(1, Base+Bonus-GlobalPenalty)` to obtain the final budget, matching the current clamp semantics. 【F:chessTest/internal/game/moves.go†L547-L588】
+
 # Turn Ability Hook Review
 
 ## Ability-sensitive work performed by `endTurn`
