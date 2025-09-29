@@ -31,6 +31,8 @@ type MoveState struct {
 	MaxCaptures           int
 	LastSegmentCaptured   bool
 	QuantumKillUsed       bool
+	Promotion             PieceType
+	PromotionSet          bool
 }
 
 func (ms *MoveState) canCaptureMore() bool {
@@ -92,6 +94,31 @@ func (e *Engine) startNewMove(req MoveRequest) error {
 		return errors.New("cannot capture a friendly piece")
 	}
 
+	segmentCtx := moveSegmentContext{capture: target, captureSquare: to}
+	if target == nil && pc.Type == Pawn && from.File() != to.File() {
+		if sq, ok := e.board.EnPassant.Square(); ok && sq == to {
+			captureRank := to.Rank()
+			if pc.Color == White {
+				captureRank--
+			} else {
+				captureRank++
+			}
+			captureSq, ok := shared.SquareFromCoords(captureRank, to.File())
+			if !ok {
+				return errors.New("invalid en passant capture")
+			}
+			victim := e.board.pieceAt[captureSq]
+			if victim == nil || victim.Color == pc.Color || victim.Type != Pawn {
+				return errors.New("invalid en passant capture")
+			}
+			segmentCtx.capture = victim
+			segmentCtx.captureSquare = captureSq
+			segmentCtx.enPassant = true
+		} else {
+			return errors.New("illegal pawn capture")
+		}
+	}
+
 	// Validate the legality of the first move segment.
 	if !e.isLegalFirstSegment(pc, from, to) {
 		return errors.New("illegal first move")
@@ -128,17 +155,19 @@ func (e *Engine) startNewMove(req MoveRequest) error {
 		HasDoubleKill:   e.hasDoubleKill(pc),
 		HasResurrection: pc.Abilities.Contains(AbilityResurrection),
 		MaxCaptures:     maxCaptures,
+		Promotion:       req.Promotion,
+		PromotionSet:    req.HasPromotion,
 	}
 
 	// The move is now valid, push the state before executing.
 	e.pushHistory()
-	e.executeMoveSegment(from, to)
-	e.handlePostSegment(pc, from, to, target)
+	e.executeMoveSegment(from, to, segmentCtx)
+	e.handlePostSegment(pc, from, to, segmentCtx.capture)
 
 	// Handle capture abilities if a piece was taken.
-	if target != nil {
-		e.currentMove.registerCapture(target)
-		if err := e.ResolveCaptureAbility(pc, target, to); err != nil {
+	if segmentCtx.capture != nil {
+		e.currentMove.registerCapture(segmentCtx.capture)
+		if err := e.ResolveCaptureAbility(pc, segmentCtx.capture, segmentCtx.captureSquare); err != nil {
 			// If DoOver was triggered, the state is already rewound. Abort.
 			e.currentMove = nil // Clear the invalid move state
 			return err
@@ -150,7 +179,7 @@ func (e *Engine) startNewMove(req MoveRequest) error {
 	}
 
 	// Check for abilities that end the turn immediately after a capture.
-	if target != nil && e.shouldEndTurnAfterCapture(pc) {
+	if segmentCtx.capture != nil && e.shouldEndTurnAfterCapture(pc) {
 		e.endTurn()
 		return nil
 	}
@@ -187,6 +216,11 @@ func (e *Engine) continueMove(req MoveRequest) error {
 		return errors.New("must continue move from the piece's current square")
 	}
 
+	if req.HasPromotion {
+		e.currentMove.Promotion = req.Promotion
+		e.currentMove.PromotionSet = true
+	}
+
 	// Validate the legality of the continuation move.
 	if !e.isLegalContinuation(pc, from, to) {
 		return errors.New("illegal move continuation")
@@ -210,16 +244,41 @@ func (e *Engine) continueMove(req MoveRequest) error {
 		return ErrCaptureBlocked
 	}
 
+	segmentCtx := moveSegmentContext{capture: target, captureSquare: to}
+	if target == nil && pc.Type == Pawn && from.File() != to.File() {
+		if sq, ok := e.board.EnPassant.Square(); ok && sq == to {
+			captureRank := to.Rank()
+			if pc.Color == White {
+				captureRank--
+			} else {
+				captureRank++
+			}
+			captureSq, ok := shared.SquareFromCoords(captureRank, to.File())
+			if !ok {
+				return errors.New("invalid en passant capture")
+			}
+			victim := e.board.pieceAt[captureSq]
+			if victim == nil || victim.Color == pc.Color || victim.Type != Pawn {
+				return errors.New("invalid en passant capture")
+			}
+			segmentCtx.capture = victim
+			segmentCtx.captureSquare = captureSq
+			segmentCtx.enPassant = true
+		} else {
+			return errors.New("illegal pawn capture")
+		}
+	}
+
 	// Continuation is valid, push state and execute.
 	e.pushHistory()
 	e.currentMove.RemainingSteps -= stepsNeeded
-	e.executeMoveSegment(from, to)
+	e.executeMoveSegment(from, to, segmentCtx)
 	e.currentMove.Path = append(e.currentMove.Path, to)
-	e.handlePostSegment(pc, from, to, target)
+	e.handlePostSegment(pc, from, to, segmentCtx.capture)
 
-	if target != nil {
-		e.currentMove.registerCapture(target)
-		if err := e.ResolveCaptureAbility(pc, target, to); err != nil {
+	if segmentCtx.capture != nil {
+		e.currentMove.registerCapture(segmentCtx.capture)
+		if err := e.ResolveCaptureAbility(pc, segmentCtx.capture, segmentCtx.captureSquare); err != nil {
 			e.currentMove = nil
 			return err
 		}
@@ -230,7 +289,7 @@ func (e *Engine) continueMove(req MoveRequest) error {
 	}
 
 	// Check for turn-ending conditions after the action.
-	if e.checkPostCaptureTermination(pc, target) {
+	if e.checkPostCaptureTermination(pc, segmentCtx.capture) {
 		e.endTurn()
 	} else if e.currentMove.RemainingSteps <= 0 && !e.hasFreeContinuation(pc) {
 		e.endTurn()
@@ -742,6 +801,18 @@ func (e *Engine) isSquareAttackedBy(color Color, target Square) bool {
 	defender := e.board.pieceAt[target]
 	for _, attacker := range e.board.pieceAt {
 		if attacker == nil || attacker.Color != color {
+			continue
+		}
+		if attacker.Type == King {
+			atkRank := attacker.Square.Rank()
+			atkFile := attacker.Square.File()
+			for _, delta := range kingOffsets {
+				if sq, ok := shared.SquareFromCoords(atkRank+delta.dr, atkFile+delta.df); ok && sq == target {
+					if e.canDirectCapture(attacker, defender, attacker.Square, target) {
+						return true
+					}
+				}
+			}
 			continue
 		}
 		if !e.pathIsPassable(attacker, attacker.Square, target) {

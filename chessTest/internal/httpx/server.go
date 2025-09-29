@@ -132,9 +132,10 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 // ---- API: move ----
 
 type moveBody struct {
-	From string `json:"from"`
-	To   string `json:"to"`
-	Dir  string `json:"dir"` // optional: N,NE,E,SE,S,SW,W,NW or "" (auto)
+	From      string `json:"from"`
+	To        string `json:"to"`
+	Dir       string `json:"dir"` // optional: N,NE,E,SE,S,SW,W,NW or "" (auto)
+	Promotion string `json:"promotion"`
 }
 
 func (s *Server) handleMove(w http.ResponseWriter, r *http.Request) {
@@ -160,6 +161,15 @@ func (s *Server) handleMove(w http.ResponseWriter, r *http.Request) {
 	dir := parseDirection(body.Dir)
 
 	req := game.MoveRequest{From: from, To: to, Dir: dir}
+	if promotion := strings.TrimSpace(body.Promotion); promotion != "" {
+		pt, ok := game.ParsePromotionPiece(promotion)
+		if !ok {
+			writeError(w, http.StatusBadRequest, "invalid promotion choice")
+			return
+		}
+		req.Promotion = pt
+		req.HasPromotion = true
+	}
 
 	s.engineMu.Lock()
 	err := s.engine.Move(req)
