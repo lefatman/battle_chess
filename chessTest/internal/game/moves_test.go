@@ -217,6 +217,124 @@ func TestFloodWakePushAfterSlide(t *testing.T) {
 	}
 }
 
+func TestQuantumKillRemoteRemovalHonorsRank(t *testing.T) {
+	eng := NewEngine()
+	if err := eng.SetSideConfig(White, AbilityList{AbilityQuantumKill}, ElementLight); err != nil {
+		t.Fatalf("configure white: %v", err)
+	}
+	if err := eng.SetSideConfig(Black, AbilityList{AbilitySideStep}, ElementShadow); err != nil {
+		t.Fatalf("configure black: %v", err)
+	}
+
+	clearBoard(eng)
+
+	queenSq := mustSquare(t, "d4")
+	victimSq := mustSquare(t, "d6")
+	bishopSq := mustSquare(t, "a8")
+	pawnSq := mustSquare(t, "b8")
+	queenGuardSq := mustSquare(t, "h8")
+
+	eng.placePiece(White, Queen, queenSq)
+	eng.placePiece(Black, Rook, victimSq)
+	eng.placePiece(Black, Bishop, bishopSq)
+	eng.placePiece(Black, Pawn, pawnSq)
+	eng.placePiece(Black, Queen, queenGuardSq)
+	eng.board.turn = White
+
+	if err := eng.Move(MoveRequest{From: queenSq, To: victimSq, Dir: DirNone}); err != nil {
+		t.Fatalf("move failed: %v", err)
+	}
+
+	if eng.board.pieceAt[bishopSq] != nil {
+		t.Fatalf("expected remote bishop at %s to be removed", bishopSq)
+	}
+	if eng.board.pieceAt[pawnSq] != nil {
+		t.Fatalf("expected echo pawn at %s to be removed", pawnSq)
+	}
+	if eng.board.pieceAt[queenGuardSq] == nil {
+		t.Fatalf("expected high-rank queen at %s to survive", queenGuardSq)
+	}
+}
+
+func TestScatterShotAllowsSideCapture(t *testing.T) {
+	eng := NewEngine()
+	if err := eng.SetSideConfig(White, AbilityList{AbilityScatterShot}, ElementAir); err != nil {
+		t.Fatalf("configure white: %v", err)
+	}
+	if err := eng.SetSideConfig(Black, AbilityList{AbilitySideStep}, ElementShadow); err != nil {
+		t.Fatalf("configure black: %v", err)
+	}
+
+	clearBoard(eng)
+
+	attackerSq := mustSquare(t, "d4")
+	targetSq := mustSquare(t, "e4")
+
+	eng.placePiece(White, Pawn, attackerSq)
+	eng.placePiece(Black, Pawn, targetSq)
+	eng.board.turn = White
+
+	if err := eng.Move(MoveRequest{From: attackerSq, To: targetSq, Dir: DirNone}); err != nil {
+		t.Fatalf("scatter shot capture failed: %v", err)
+	}
+
+	if pc := eng.board.pieceAt[targetSq]; pc == nil || pc.Color != White {
+		t.Fatalf("expected white pawn to occupy %s after capture", targetSq)
+	}
+}
+
+func TestStalwartBlocksLowerRankCapture(t *testing.T) {
+	eng := NewEngine()
+	if err := eng.SetSideConfig(White, AbilityList{AbilitySideStep}, ElementLight); err != nil {
+		t.Fatalf("configure white: %v", err)
+	}
+	if err := eng.SetSideConfig(Black, AbilityList{AbilityStalwart}, ElementEarth); err != nil {
+		t.Fatalf("configure black: %v", err)
+	}
+
+	clearBoard(eng)
+
+	knightSq := mustSquare(t, "c3")
+	rookSq := mustSquare(t, "d5")
+
+	eng.placePiece(White, Knight, knightSq)
+	eng.placePiece(Black, Rook, rookSq)
+	eng.board.turn = White
+
+	if err := eng.Move(MoveRequest{From: knightSq, To: rookSq, Dir: DirNone}); err == nil {
+		t.Fatalf("expected stalwart to block lower-rank capture")
+	}
+}
+
+func TestIndomitableBlocksAbilityRemoval(t *testing.T) {
+	eng := NewEngine()
+	if err := eng.SetSideConfig(White, AbilityList{AbilityQuantumKill}, ElementLight); err != nil {
+		t.Fatalf("configure white: %v", err)
+	}
+	if err := eng.SetSideConfig(Black, AbilityList{AbilityIndomitable}, ElementShadow); err != nil {
+		t.Fatalf("configure black: %v", err)
+	}
+
+	clearBoard(eng)
+
+	queenSq := mustSquare(t, "d4")
+	victimSq := mustSquare(t, "d6")
+	targetSq := mustSquare(t, "a8")
+
+	eng.placePiece(White, Queen, queenSq)
+	eng.placePiece(Black, Rook, victimSq)
+	eng.placePiece(Black, Bishop, targetSq)
+	eng.board.turn = White
+
+	if err := eng.Move(MoveRequest{From: queenSq, To: victimSq, Dir: DirNone}); err != nil {
+		t.Fatalf("move failed: %v", err)
+	}
+
+	if eng.board.pieceAt[targetSq] == nil {
+		t.Fatalf("expected indomitable piece at %s to survive ability removal", targetSq)
+	}
+}
+
 func removePieceAt(eng *Engine, coord string) error {
 	sq, ok := CoordToSquare(coord)
 	if !ok {
@@ -228,4 +346,21 @@ func removePieceAt(eng *Engine, coord string) error {
 	}
 	eng.removePiece(pc, sq)
 	return nil
+}
+
+func clearBoard(eng *Engine) {
+	for idx, pc := range eng.board.pieceAt {
+		if pc != nil {
+			eng.removePiece(pc, Square(idx))
+		}
+	}
+}
+
+func mustSquare(t *testing.T, coord string) Square {
+	t.Helper()
+	sq, ok := CoordToSquare(coord)
+	if !ok {
+		t.Fatalf("invalid coordinate %s", coord)
+	}
+	return sq
 }
