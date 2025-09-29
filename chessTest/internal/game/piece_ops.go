@@ -16,6 +16,14 @@ type moveSegmentContext struct {
 	enPassant     bool
 }
 
+func (ctx moveSegmentContext) metadata() SegmentMetadata {
+	return SegmentMetadata{
+		Capture:       ctx.capture,
+		CaptureSquare: ctx.captureSquare,
+		EnPassant:     ctx.enPassant,
+	}
+}
+
 func (e *Engine) executeMoveSegment(from, to Square, ctx moveSegmentContext) {
 	pc := e.board.pieceAt[from]
 	if pc == nil {

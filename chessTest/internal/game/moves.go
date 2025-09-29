@@ -97,9 +97,15 @@ func (ar *AbilityRuntime) counter(key string) int {
 }
 
 const (
-	abilityFlagUsed    = "used"
-	abilityFlagWindow  = "window"
-	abilityCounterFree = "free"
+	abilityFlagUsed   = "used"
+	abilityFlagWindow = "window"
+
+	abilityCounterFree             = "free"
+	abilityCounterCaptures         = "captures"
+	abilityCounterCaptureLimit     = "captureLimit"
+	abilityCounterCaptureSquare    = "captureSquare"
+	abilityCounterCaptureSegment   = "captureSegment"
+	abilityCounterCaptureEnPassant = "captureEnPassant"
 )
 
 func (ms *MoveState) ensureAbilityData() {
@@ -194,28 +200,67 @@ func newAbilityRuntimeMap(abilities AbilityList) map[Ability]*AbilityRuntime {
 }
 
 func (ms *MoveState) canCaptureMore() bool {
-	if len(ms.Captures) == 0 {
+	if ms == nil {
+		return false
+	}
+
+	captures := ms.abilityCounter(AbilityNone, abilityCounterCaptures)
+	if captures == 0 && len(ms.Captures) > 0 {
+		captures = len(ms.Captures)
+	}
+
+	limit := ms.abilityCounter(AbilityNone, abilityCounterCaptureLimit)
+	if limit == 0 {
+		limit = ms.MaxCaptures
+	}
+
+	if captures == 0 {
 		return true
 	}
-	if ms.MaxCaptures <= 0 {
+	if limit <= 0 {
 		return true
 	}
-	return len(ms.Captures) < ms.MaxCaptures
+	return captures < limit
 }
 
-func (ms *MoveState) registerCapture(captured *Piece) {
-	if captured == nil {
+func (ms *MoveState) registerCapture(meta SegmentMetadata) {
+	if meta.Capture == nil {
 		return
 	}
-	ms.Captures = append(ms.Captures, captured)
+
+	ms.Captures = append(ms.Captures, meta.Capture)
+
+	ms.addAbilityCounter(AbilityNone, abilityCounterCaptures, 1)
+	if ms.abilityCounter(AbilityNone, abilityCounterCaptureLimit) == 0 && ms.MaxCaptures != 0 {
+		ms.setAbilityCounter(AbilityNone, abilityCounterCaptureLimit, ms.MaxCaptures)
+	}
+
+	step := len(ms.Path)
+	if step >= 2 {
+		step -= 2
+	} else {
+		step = 0
+	}
+	ms.setAbilityCounter(AbilityNone, abilityCounterCaptureSegment, step)
+	ms.setAbilityCounter(AbilityNone, abilityCounterCaptureSquare, int(meta.CaptureSquare))
+	ms.setAbilityCounter(AbilityNone, abilityCounterCaptureEnPassant, boolToInt(meta.EnPassant))
+
 	if ms.Piece != nil && ms.Piece.Abilities.Contains(AbilityResurrection) {
 		ms.setAbilityFlag(AbilityResurrection, abilityFlagWindow, true)
+		ms.setAbilityCounter(AbilityResurrection, abilityFlagWindow, 1)
 	}
+}
+
+func boolToInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
 }
 
 func (e *Engine) calculateMaxCaptures(pc *Piece) int {
 	maxCaptures := 1 // Base capture limit
-	if e.hasChainKill(pc) {
+	if pc != nil && pc.Abilities.Contains(AbilityChainKill) {
 		maxCaptures += 2 // Chain Kill allows 2 additional captures
 	}
 	return maxCaptures
@@ -307,6 +352,12 @@ func (e *Engine) startNewMove(req MoveRequest) error {
 		PromotionSet:   req.HasPromotion,
 	}
 
+	e.currentMove.setAbilityCounter(AbilityNone, abilityCounterCaptureLimit, maxCaptures)
+	e.currentMove.setAbilityCounter(AbilityNone, abilityCounterCaptures, len(e.currentMove.Captures))
+	e.currentMove.setAbilityCounter(AbilityNone, abilityCounterCaptureSegment, -1)
+	e.currentMove.setAbilityCounter(AbilityNone, abilityCounterCaptureSquare, -1)
+	e.currentMove.setAbilityCounter(AbilityNone, abilityCounterCaptureEnPassant, 0)
+
 	// The move is now valid, push the state before executing.
 	delta := e.pushHistory()
 	defer e.finalizeHistory(delta)
@@ -321,7 +372,7 @@ func (e *Engine) startNewMove(req MoveRequest) error {
 
 	// Handle capture abilities if a piece was taken.
 	if segmentCtx.capture != nil {
-		e.currentMove.registerCapture(segmentCtx.capture)
+		e.currentMove.registerCapture(segmentCtx.metadata())
 		if err := e.ResolveCaptureAbility(pc, segmentCtx.capture, segmentCtx.captureSquare); err != nil {
 			// If DoOver was triggered, the state is already rewound. Abort.
 			e.currentMove = nil // Clear the invalid move state
@@ -397,6 +448,7 @@ func (e *Engine) continueMove(req MoveRequest) error {
 
 	if pc.Abilities.Contains(AbilityResurrection) && e.currentMove.abilityFlag(AbilityResurrection, abilityFlagWindow) {
 		e.currentMove.setAbilityFlag(AbilityResurrection, abilityFlagWindow, false)
+		e.currentMove.setAbilityCounter(AbilityResurrection, abilityFlagWindow, 0)
 	}
 
 	target := e.board.pieceAt[to]
@@ -448,7 +500,7 @@ func (e *Engine) continueMove(req MoveRequest) error {
 	e.handlePostSegment(pc, from, to, segmentCtx.capture)
 
 	if segmentCtx.capture != nil {
-		e.currentMove.registerCapture(segmentCtx.capture)
+		e.currentMove.registerCapture(segmentCtx.metadata())
 		if err := e.ResolveCaptureAbility(pc, segmentCtx.capture, segmentCtx.captureSquare); err != nil {
 			e.currentMove = nil
 			e.abilityCtx.clear()
@@ -503,6 +555,7 @@ func (e *Engine) trySideStepNudge(pc *Piece, from, to Square) (bool, error) {
 	if e.currentMove != nil {
 		if pc.Abilities.Contains(AbilityResurrection) {
 			e.currentMove.setAbilityFlag(AbilityResurrection, abilityFlagWindow, false)
+			e.currentMove.setAbilityCounter(AbilityResurrection, abilityFlagWindow, 0)
 		}
 	}
 
@@ -544,6 +597,7 @@ func (e *Engine) tryQuantumStep(pc *Piece, from, to Square) (bool, error) {
 	e.currentMove.markAbilityUsed(AbilityQuantumStep)
 	if pc.Abilities.Contains(AbilityResurrection) {
 		e.currentMove.setAbilityFlag(AbilityResurrection, abilityFlagWindow, false)
+		e.currentMove.setAbilityCounter(AbilityResurrection, abilityFlagWindow, 0)
 	}
 
 	if ally == nil {
