@@ -41,6 +41,20 @@ type scorchHandler struct {
 	abilityHandlerBase
 }
 
+func (scorchHandler) StepBudgetModifier(ctx StepBudgetContext) (StepBudgetDelta, error) {
+	if ctx.Engine == nil || ctx.Piece == nil {
+		return StepBudgetDelta{}, nil
+	}
+	pc := ctx.Piece
+	if !pc.Abilities.Contains(AbilityScorch) {
+		return StepBudgetDelta{}, nil
+	}
+	if elementOf(ctx.Engine, pc) != ElementFire {
+		return StepBudgetDelta{}, nil
+	}
+	return StepBudgetDelta{AddSteps: 1, Notes: []string{"Scorch grants +1 step"}}, nil
+}
+
 func (scorchHandler) ResolveCapture(ctx CaptureContext) (CaptureOutcome, error) {
 	if ctx.Engine == nil || ctx.Attacker == nil || ctx.Victim == nil || ctx.Move == nil {
 		return CaptureOutcome{}, nil
@@ -170,6 +184,10 @@ func NewBastionHandler() AbilityHandler { return bastionHandler{} }
 
 type bastionHandler struct {
 	abilityHandlerBase
+}
+
+func (bastionHandler) CanPhase(PhaseContext) (bool, error) {
+	return false, ErrPhaseDenied
 }
 
 func (bastionHandler) ResolveCapture(ctx CaptureContext) (CaptureOutcome, error) {

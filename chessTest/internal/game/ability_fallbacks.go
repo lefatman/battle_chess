@@ -99,6 +99,10 @@ type floodWakeFallbackHandler struct {
 	abilityHandlerBase
 }
 
+func (floodWakeFallbackHandler) CanPhase(PhaseContext) (bool, error) {
+	return false, ErrPhaseDenied
+}
+
 func (floodWakeFallbackHandler) PlanSpecialMove(ctx *SpecialMoveContext) (SpecialMovePlan, bool, error) {
 	return SpecialMovePlan{}, false, nil
 }

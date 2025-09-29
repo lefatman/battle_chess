@@ -34,6 +34,10 @@ const (
 	TurnEndCancelled = game.TurnEndCancelled
 )
 
+var (
+	ErrPhaseDenied = game.ErrPhaseDenied
+)
+
 // HandlerFuncs provides a convenient adapter that allows handlers to override
 // only the hooks they need. Any nil function pointer results in a neutral
 // response so the registry can safely skip unused hooks.

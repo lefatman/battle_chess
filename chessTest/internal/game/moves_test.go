@@ -1053,7 +1053,16 @@ func TestResurrectionCaptureWindowExpires(t *testing.T) {
 	eng.placePiece(Black, Queen, blocked)
 	eng.board.turn = White
 
-	if steps := eng.baseStepBudget(eng.board.pieceAt[start]); steps < 3 {
+	mover := eng.board.pieceAt[start]
+	handlers, err := eng.instantiateAbilityHandlers(mover)
+	if err != nil {
+		t.Fatalf("instantiate handlers: %v", err)
+	}
+	steps, _, err := eng.calculateStepBudget(mover, handlers)
+	if err != nil {
+		t.Fatalf("calculate step budget: %v", err)
+	}
+	if steps < 3 {
 		t.Fatalf("expected at least 3 steps with buffs, got %d", steps)
 	}
 	if eng.abilities[Black.Index()].Contains(AbilityDoOver) {

@@ -1,6 +1,10 @@
 package game
 
-import "battle_chess_poc/internal/shared"
+import (
+	"errors"
+
+	"battle_chess_poc/internal/shared"
+)
 
 func appendAbilityNote(dst *string, note string) {
 	if *dst == "" || *dst == "New game" || *dst == "Configuration locked - game started" {
@@ -230,6 +234,9 @@ func (e *Engine) canPhaseThrough(pc *Piece, from Square, to Square) bool {
 					}
 					allowed, err := handler.CanPhase(*ctx)
 					if err != nil {
+						if errors.Is(err, ErrPhaseDenied) {
+							return false
+						}
 						continue
 					}
 					if allowed {
