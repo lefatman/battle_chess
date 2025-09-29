@@ -10,6 +10,7 @@ type AbilityHandler interface {
 	CanPhase(ctx PhaseContext) (bool, error)
 	OnMoveStart(ctx MoveLifecycleContext) error
 	OnSegmentStart(ctx SegmentContext) error
+	OnPostSegment(ctx PostSegmentContext) error
 	OnCapture(ctx CaptureContext) error
 	OnTurnEnd(ctx TurnEndContext) error
 }
@@ -30,6 +31,18 @@ type SegmentPreparationHandler interface {
 // their runtime state.
 type SegmentResolutionHandler interface {
 	OnSegmentResolved(ctx SegmentResolutionContext) error
+}
+
+// FreeContinuationHandler exposes whether an ability can grant a free
+// continuation after the current segment resolves.
+type FreeContinuationHandler interface {
+	FreeContinuationAvailable(ctx FreeContinuationContext) bool
+}
+
+// DirectionChangeHandler allows abilities to inspect direction changes after
+// a segment and optionally consume the default note logging.
+type DirectionChangeHandler interface {
+	OnDirectionChange(ctx DirectionChangeContext) bool
 }
 
 // SpecialMoveHandler lets abilities claim ownership of special continuation
@@ -117,6 +130,18 @@ type SegmentResolutionContext struct {
 	StepsConsumed int
 }
 
+// PostSegmentContext captures the data required for handlers to react to the
+// completion of a segment before capture aftermath logic runs.
+type PostSegmentContext struct {
+	Engine      *Engine
+	Move        *MoveState
+	Piece       *Piece
+	From        shared.Square
+	To          shared.Square
+	Segment     SegmentMetadata
+	SegmentStep int
+}
+
 // SpecialMoveAction enumerates the execution strategies supported by
 // SpecialMovePlan.
 type SpecialMoveAction int
@@ -166,6 +191,29 @@ type CaptureContext struct {
 	SegmentStep   int
 }
 
+// FreeContinuationContext communicates the data necessary to determine whether
+// an ability can grant a free continuation after the current segment.
+type FreeContinuationContext struct {
+	Engine  *Engine
+	Move    *MoveState
+	Piece   *Piece
+	Ability Ability
+}
+
+// DirectionChangeContext provides the squares and directions involved in a
+// post-segment direction change so handlers can react appropriately.
+type DirectionChangeContext struct {
+	Engine            *Engine
+	Move              *MoveState
+	Piece             *Piece
+	PreviousStart     shared.Square
+	PreviousEnd       shared.Square
+	CurrentEnd        shared.Square
+	PreviousDirection Direction
+	CurrentDirection  Direction
+	SegmentStep       int
+}
+
 // TurnEndContext communicates the reason a turn is ending along with the
 // active runtime state.
 type TurnEndContext struct {
@@ -196,6 +244,9 @@ type abilityContextCache struct {
 	segment         SegmentContext
 	segmentPrep     SegmentPreparationContext
 	segmentResolved SegmentResolutionContext
+	postSegment     PostSegmentContext
+	continuation    FreeContinuationContext
+	direction       DirectionChangeContext
 	capture         CaptureContext
 	turnEnd         TurnEndContext
 }
@@ -226,6 +277,15 @@ func (c abilityContextCache) usage() map[string]bool {
 	}
 	if c.segmentResolved.Engine != nil || c.segmentResolved.Move != nil || c.segmentResolved.StepsConsumed != 0 {
 		usage["segmentResolved"] = true
+	}
+	if c.postSegment.Engine != nil || c.postSegment.Move != nil || c.postSegment.Piece != nil {
+		usage["postSegment"] = true
+	}
+	if c.continuation.Engine != nil || c.continuation.Move != nil || c.continuation.Piece != nil || c.continuation.Ability != AbilityNone {
+		usage["continuation"] = true
+	}
+	if c.direction.Engine != nil || c.direction.Move != nil || c.direction.Piece != nil || c.direction.PreviousDirection != 0 || c.direction.CurrentDirection != 0 {
+		usage["direction"] = true
 	}
 	if c.capture.Engine != nil || c.capture.Attacker != nil || c.capture.Victim != nil {
 		usage["capture"] = true

@@ -42,11 +42,14 @@ type HandlerFuncs struct {
 	CanPhaseFunc           func(game.PhaseContext) (bool, error)
 	OnMoveStartFunc        func(game.MoveLifecycleContext) error
 	OnSegmentStartFunc     func(game.SegmentContext) error
+	OnPostSegmentFunc      func(game.PostSegmentContext) error
 	PrepareSegmentFunc     func(*game.SegmentPreparationContext) error
 	OnSegmentResolvedFunc  func(game.SegmentResolutionContext) error
 	OnCaptureFunc          func(game.CaptureContext) error
 	OnTurnEndFunc          func(game.TurnEndContext) error
 	PlanSpecialMoveFunc    func(*game.SpecialMoveContext) (game.SpecialMovePlan, bool, error)
+	FreeContinuationFunc   func(game.FreeContinuationContext) bool
+	OnDirectionChangeFunc  func(game.DirectionChangeContext) bool
 }
 
 // StepBudgetModifier invokes the configured modifier hook if present.
@@ -79,6 +82,14 @@ func (hf HandlerFuncs) OnSegmentStart(ctx game.SegmentContext) error {
 		return nil
 	}
 	return hf.OnSegmentStartFunc(ctx)
+}
+
+// OnPostSegment invokes the configured post-segment hook if present.
+func (hf HandlerFuncs) OnPostSegment(ctx game.PostSegmentContext) error {
+	if hf.OnPostSegmentFunc == nil {
+		return nil
+	}
+	return hf.OnPostSegmentFunc(ctx)
 }
 
 // PrepareSegment invokes the configured segment-preparation hook if present.
@@ -119,6 +130,22 @@ func (hf HandlerFuncs) PlanSpecialMove(ctx *game.SpecialMoveContext) (game.Speci
 		return game.SpecialMovePlan{}, false, nil
 	}
 	return hf.PlanSpecialMoveFunc(ctx)
+}
+
+// FreeContinuationAvailable invokes the configured continuation hook if present.
+func (hf HandlerFuncs) FreeContinuationAvailable(ctx game.FreeContinuationContext) bool {
+	if hf.FreeContinuationFunc == nil {
+		return false
+	}
+	return hf.FreeContinuationFunc(ctx)
+}
+
+// OnDirectionChange invokes the configured direction-change hook if present.
+func (hf HandlerFuncs) OnDirectionChange(ctx game.DirectionChangeContext) bool {
+	if hf.OnDirectionChangeFunc == nil {
+		return false
+	}
+	return hf.OnDirectionChangeFunc(ctx)
 }
 
 var (
