@@ -221,6 +221,10 @@ func (e *Engine) continueMove(req MoveRequest) error {
 		e.currentMove.PromotionSet = true
 	}
 
+	if handled, err := e.trySideStepNudge(pc, from, to); handled {
+		return err
+	}
+
 	// Validate the legality of the continuation move.
 	if !e.isLegalContinuation(pc, from, to) {
 		return errors.New("illegal move continuation")
@@ -298,6 +302,56 @@ func (e *Engine) continueMove(req MoveRequest) error {
 	}
 
 	return nil
+}
+
+func (e *Engine) trySideStepNudge(pc *Piece, from, to Square) (bool, error) {
+	if e.currentMove == nil || pc == nil {
+		return false, nil
+	}
+	if !pc.Abilities.Contains(AbilitySideStep) || e.currentMove.SideStepUsed || e.currentMove.RemainingSteps <= 0 {
+		return false, nil
+	}
+	if !isAdjacentSquare(from, to) {
+		return false, nil
+	}
+
+	if target := e.board.pieceAt[to]; target != nil {
+		return false, nil
+	}
+
+	e.pushHistory()
+	e.currentMove.RemainingSteps--
+	e.currentMove.SideStepUsed = true
+
+	segmentCtx := moveSegmentContext{}
+	e.executeMoveSegment(from, to, segmentCtx)
+	e.currentMove.Path = append(e.currentMove.Path, to)
+	e.handlePostSegment(pc, from, to, nil)
+
+	if e.currentMove != nil {
+		e.currentMove.ResurrectionWindow = false
+	}
+
+	appendAbilityNote(&e.board.lastNote, "Side Step nudge (cost 1 step)")
+
+	if e.checkPostCaptureTermination(pc, nil) {
+		e.endTurn()
+	} else if e.currentMove.RemainingSteps <= 0 && !e.hasFreeContinuation(pc) {
+		e.endTurn()
+	} else {
+		appendAbilityNote(&e.board.lastNote, fmt.Sprintf("%d steps remaining", e.currentMove.RemainingSteps))
+	}
+
+	return true, nil
+}
+
+func isAdjacentSquare(from, to Square) bool {
+	dr := absInt(to.Rank() - from.Rank())
+	df := absInt(to.File() - from.File())
+	if dr == 0 && df == 0 {
+		return false
+	}
+	return dr <= 1 && df <= 1
 }
 
 // endTurn finalizes the move, performs cleanup, and passes control to the other player.

@@ -267,17 +267,17 @@ func TestEnPassantCapture(t *testing.T) {
 
 func TestPromotionSelection(t *testing.T) {
 	eng := NewEngine()
-        if err := eng.SetSideConfig(White, AbilityList{AbilityStalwart}, ElementLight); err != nil {
-                t.Fatalf("configure white: %v", err)
-        }
-        if err := eng.SetSideConfig(Black, AbilityList{AbilityStalwart}, ElementShadow); err != nil {
-                t.Fatalf("configure black: %v", err)
-        }
+	if err := eng.SetSideConfig(White, AbilityList{AbilityStalwart}, ElementLight); err != nil {
+		t.Fatalf("configure white: %v", err)
+	}
+	if err := eng.SetSideConfig(Black, AbilityList{AbilityStalwart}, ElementShadow); err != nil {
+		t.Fatalf("configure black: %v", err)
+	}
 
 	clearBoard(eng)
 
-        whiteKing := mustSquare(t, "e1")
-        blackKing := mustSquare(t, "g8")
+	whiteKing := mustSquare(t, "e1")
+	blackKing := mustSquare(t, "g8")
 	pawnStart := mustSquare(t, "e7")
 	pawnPromotion := mustSquare(t, "e8")
 
@@ -537,6 +537,107 @@ func TestScatterShotAllowsSideCapture(t *testing.T) {
 	if pc := eng.board.pieceAt[targetSq]; pc == nil || pc.Color != White {
 		t.Fatalf("expected white pawn to occupy %s after capture", targetSq)
 	}
+}
+
+func TestSideStepNudge(t *testing.T) {
+	t.Run("white diagonal nudge spends step", func(t *testing.T) {
+		eng := NewEngine()
+		if err := eng.SetSideConfig(White, AbilityList{AbilitySideStep, AbilitySchrodingersLaugh}, ElementLight); err != nil {
+			t.Fatalf("configure white: %v", err)
+		}
+		if err := eng.SetSideConfig(Black, AbilityList{AbilitySideStep}, ElementShadow); err != nil {
+			t.Fatalf("configure black: %v", err)
+		}
+
+		clearBoard(eng)
+
+		whiteKing := mustSquare(t, "e1")
+		blackKing := mustSquare(t, "e8")
+		start := mustSquare(t, "d4")
+		first := mustSquare(t, "f5")
+		diagonal := mustSquare(t, "g6")
+
+		eng.placePiece(White, King, whiteKing)
+		eng.placePiece(Black, King, blackKing)
+		eng.placePiece(White, Knight, start)
+		eng.board.turn = White
+
+		if err := eng.Move(MoveRequest{From: start, To: first, Dir: DirNone}); err != nil {
+			t.Fatalf("first move: %v", err)
+		}
+		if eng.currentMove == nil {
+			t.Fatalf("expected move to remain active after first step")
+		}
+
+		stepsBefore := eng.currentMove.RemainingSteps
+		if stepsBefore <= 0 {
+			t.Fatalf("expected spare steps before side step, got %d", stepsBefore)
+		}
+
+		if err := eng.Move(MoveRequest{From: first, To: diagonal, Dir: DirNone}); err != nil {
+			t.Fatalf("side step nudge: %v", err)
+		}
+
+		if eng.currentMove == nil {
+			t.Fatalf("expected move to remain active after diagonal nudge")
+		}
+		if got := eng.currentMove.RemainingSteps; got != stepsBefore-1 {
+			t.Fatalf("expected remaining steps to drop from %d to %d, got %d", stepsBefore, stepsBefore-1, got)
+		}
+		if !eng.currentMove.SideStepUsed {
+			t.Fatalf("expected side step usage to latch")
+		}
+		if pc := eng.board.pieceAt[diagonal]; pc == nil || pc.Color != White {
+			t.Fatalf("expected white knight to occupy %s", diagonal.String())
+		}
+	})
+
+	t.Run("black orthogonal nudge ends turn", func(t *testing.T) {
+		eng := NewEngine()
+		if err := eng.SetSideConfig(White, AbilityList{AbilitySideStep}, ElementLight); err != nil {
+			t.Fatalf("configure white: %v", err)
+		}
+		if err := eng.SetSideConfig(Black, AbilityList{AbilitySideStep, AbilityBelligerent}, ElementShadow); err != nil {
+			t.Fatalf("configure black: %v", err)
+		}
+
+		clearBoard(eng)
+
+		whiteKing := mustSquare(t, "d1")
+		blackKing := mustSquare(t, "d8")
+		start := mustSquare(t, "e5")
+		first := mustSquare(t, "c4")
+		orth := mustSquare(t, "c3")
+
+		eng.placePiece(White, King, whiteKing)
+		eng.placePiece(Black, King, blackKing)
+		eng.placePiece(Black, Knight, start)
+		eng.board.turn = Black
+
+		if err := eng.Move(MoveRequest{From: start, To: first, Dir: DirNone}); err != nil {
+			t.Fatalf("first move: %v", err)
+		}
+		if eng.currentMove == nil {
+			t.Fatalf("expected move to remain active after first step")
+		}
+		if got := eng.currentMove.RemainingSteps; got != 1 {
+			t.Fatalf("expected exactly one step remaining before nudge, got %d", got)
+		}
+
+		if err := eng.Move(MoveRequest{From: first, To: orth, Dir: DirNone}); err != nil {
+			t.Fatalf("side step nudge: %v", err)
+		}
+
+		if eng.currentMove != nil {
+			t.Fatalf("expected turn to end once steps were exhausted")
+		}
+		if eng.board.turn != White {
+			t.Fatalf("expected turn to pass to white, got %s", eng.board.turn)
+		}
+		if pc := eng.board.pieceAt[orth]; pc == nil || pc.Color != Black {
+			t.Fatalf("expected black knight to occupy %s", orth.String())
+		}
+	})
 }
 
 func TestStalwartBlocksLowerRankCapture(t *testing.T) {
