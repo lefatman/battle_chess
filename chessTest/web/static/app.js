@@ -196,7 +196,7 @@
       const toAlg = sqToAlg(sqIndex);
       // If BlockPath required, ensure a direction chosen
       const movingPiece = state.pieces.find(p => p.square === selectedSquare);
-      if (movingPiece && hasBlockPath(movingPiece) && !dirSelect.value) {
+      if (movingPiece && needsBlockPathDirection(movingPiece) && !dirSelect.value) {
         showMoveError("🛡️ BlockPath direction required.");
         sounds.error();
         return;
@@ -239,7 +239,7 @@
 
     const fromSq = algToSq(from);
     const movingPiece = state.pieces.find(p => p.square === fromSq);
-    if (movingPiece && hasBlockPath(movingPiece) && !dir) {
+    if (movingPiece && needsBlockPathDirection(movingPiece) && !dir) {
       showMoveError("🛡️ BlockPath direction required!");
       sounds.error();
       return;
@@ -410,12 +410,21 @@
     if (fromInput.value) {
       const fromSq = algToSq(fromInput.value.toLowerCase());
       const piece = state.pieces.find(p => p.square === fromSq);
-      if (piece && hasBlockPath(piece)) {
-        dirSelect.required = true;
-        if (dirLabel) dirLabel.classList.add("required");
-      } else {
-        dirSelect.required = false;
-        if (dirLabel) dirLabel.classList.remove("required");
+      const needsDir = piece && needsBlockPathDirection(piece);
+      dirSelect.required = !!needsDir;
+      if (dirLabel) {
+        dirLabel.classList.toggle("required", !!needsDir);
+      }
+      if (needsDir) {
+        dirSelect.value = "";
+      } else if (piece) {
+        const facingIndex = state.blockFacing?.[piece.id];
+        if (facingIndex !== undefined) {
+          const facingValue = DIRS[facingIndex];
+          if (facingValue) {
+            dirSelect.value = facingValue;
+          }
+        }
       }
     } else {
       dirSelect.required = false;
@@ -498,6 +507,12 @@
       if (cfg && abilityListHasBlockPath(cfg.abilities)) return true;
     }
     return false;
+  }
+
+  function needsBlockPathDirection(piece) {
+    if (!piece) return false;
+    if (!hasBlockPath(piece)) return false;
+    return state.blockFacing?.[piece.id] === undefined;
   }
 
   function abilityListHasBlockPath(list) {
