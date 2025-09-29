@@ -14,7 +14,8 @@ type Engine struct {
 	abilities     [2]AbilityList
 	elements      [2]Element
 	blockFacing   map[int]Direction
-	history       []undoState
+	history       []*historyDelta
+	activeDelta   *historyDelta
 	nextPieceID   int
 	locked        bool
 	configured    [2]bool
@@ -119,6 +120,7 @@ func (e *Engine) Reset() error {
 	e.board = Board{}
 	e.blockFacing = make(map[int]Direction)
 	e.history = e.history[:0]
+	e.activeDelta = nil
 	e.nextPieceID = 1
 	e.locked = false
 	e.currentMove = nil
@@ -303,6 +305,7 @@ func (e *Engine) resolveBlockPathFacing(pc *Piece, dir Direction) string {
 	if pc == nil || !pc.Abilities.Contains(AbilityBlockPath) {
 		return ""
 	}
+	e.recordBlockFacingForUndo(pc.ID)
 	if dir == DirNone {
 		if pc.BlockDir == DirNone {
 			pc.BlockDir = DirN

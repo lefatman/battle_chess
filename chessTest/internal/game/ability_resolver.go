@@ -103,6 +103,7 @@ func (e *Engine) maybeTriggerDoOver(victim *Piece) error {
 	if victim == nil || !victim.Abilities.Contains(AbilityDoOver) || e.pendingDoOver[victim.ID] {
 		return nil
 	}
+	e.recordPendingDoOverForUndo(victim.ID)
 
 	plies := 4
 	if plies > len(e.history) {
