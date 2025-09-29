@@ -110,7 +110,28 @@ Aggregates turn-start step counts by layering elemental + ability synergies and 
 Determines whether the mover may pass through blockers by combining personal abilities with player-wide grants. Flood Wake or Bastion anywhere on the team disables phasing; Gale Lift or Umbral Step (piece or global) enables it. The result is cached as `UsedPhasing`. 【F:chessTest/internal/game/piece_ops.go†L197-L231】
 
 ### `handlePostSegment`
-Updates per-turn flags after each executed segment. If the move qualified as a Flood Wake push or Blaze Rush dash, it marks the usage and emits corresponding notes. It also calls `logDirectionChange`, which either consumes Mist Shroud's free pivot or reports the standard extra step cost. 【F:chessTest/internal/game/moves.go†L682-L727】
+
+After every executed segment the engine funnels through `handlePostSegment`, which performs four distinct side effects before any capture aftermath or continuation logic runs:
+
+1. **Capture memory.** Writes `LastSegmentCaptured` so the next Blaze Rush option check knows whether a capture just occurred. 【F:chessTest/internal/game/moves.go†L682-L689】
+2. **Flood Wake bookkeeping.** When `isFloodWakePushAvailable` confirms the move was an orthogonal, non-capturing shove by a Water-aspected Flood Wake piece, the handler toggles `FloodWakePushUsed` and emits "Flood Wake push (free)". 【F:chessTest/internal/game/moves.go†L689-L692】
+3. **Blaze Rush bookkeeping.** When `isBlazeRushDash` reports the segment as a valid free dash, it marks `BlazeRushUsed` and posts "Blaze Rush dash (free)". 【F:chessTest/internal/game/moves.go†L694-L697】
+4. **Direction logging.** Delegates to `logDirectionChange` so Mist Shroud can consume its free pivot or so the engine can note the extra step cost. 【F:chessTest/internal/game/moves.go†L699-L700】
+
+Any refactor that moves these abilities into handlers must preserve the ordering so later checks observe the updated flags and notes before deciding whether the turn can continue.
+
+#### `logDirectionChange`
+
+This helper only runs for sliding pieces with at least two prior path entries. It compares the previous and current move directions and, when a pivot occurs, offers Mist Shroud the once-per-turn freebie by incrementing `FreeTurnsUsed` and appending "Mist Shroud free pivot". If the free pivot is unavailable, it instead appends "Direction change cost +1 step" to surface the penalty. 【F:chessTest/internal/game/moves.go†L702-L727】
+
+#### Free continuation gate helpers
+
+`hasFreeContinuation` short-circuits the step-exhaustion turn ending check by asking two ability-specific predicates in order:
+
+* `hasBlazeRushOption` – Requires an unused Blaze Rush on the active move (`BlazeRushUsed == false`), no capture on the last segment (`LastSegmentCaptured == false`), a sliding mover, and at least one prior path entry to derive the direction vector. It then peeks one square further along that direction and returns true only if the destination is empty. 【F:chessTest/internal/game/moves.go†L742-L769】
+* `hasFloodWakePushOption` – Requires an unused Flood Wake push (`FloodWakePushUsed == false`), Water alignment, and an empty orthogonal adjacent square around the piece’s current location. 【F:chessTest/internal/game/moves.go†L789-L814】
+
+These checks read the flags written in `handlePostSegment`, tying the free-move availability directly to the bookkeeping above.
 
 ### `ResolveCaptureAbility`
 On every capture the resolver:
@@ -128,4 +149,14 @@ To migrate these mechanics into ability-owned handlers, the refactor will need d
 * **Phasing eligibility:** `OnQueryPathingFlags(piece, segment)` letting abilities advertise or veto pass-through rights before path validation caches `UsedPhasing`. 【F:chessTest/internal/game/moves.go†L134-L152】【F:chessTest/internal/game/piece_ops.go†L197-L231】
 * **Capture aftermath:** `OnCaptureResolved(attacker, victim, ctx)` combining extra removals, resurrection windows, capture counts, and penalty drains prior to continuation checks. 【F:chessTest/internal/game/moves.go†L174-L199】【F:chessTest/internal/game/ability_resolver.go†L9-L201】
 * **Post-segment toggles:** `OnSegmentResolved(piece, segment, ctx)` updating once-per-turn flags (Flood Wake, Blaze Rush, Mist Shroud) and announcing ability hints for subsequent actions. 【F:chessTest/internal/game/moves.go†L171-L209】【F:chessTest/internal/game/moves.go†L682-L890】
+
+### Per-ability handler responsibilities
+
+Breaking `handlePostSegment` into discrete ability handlers implies the following dedicated duties:
+
+* **Flood Wake handler** – Detect whether the latest segment was an orthogonal, non-capturing shove, then spend the move’s Flood Wake push token (`FloodWakePushUsed`) and announce the free action. Its option check must mirror `hasFloodWakePushOption` so free-continuation logic stays consistent. 【F:chessTest/internal/game/moves.go†L689-L704】【F:chessTest/internal/game/moves.go†L789-L814】
+* **Blaze Rush handler** – Track when a segment qualifies as the free dash (`BlazeRushUsed`) and surface the matching note. Its availability check must respect `LastSegmentCaptured`, direction continuity, path history, and board emptiness just like `hasBlazeRushOption`/`isBlazeRushDash`. 【F:chessTest/internal/game/moves.go†L694-L705】【F:chessTest/internal/game/moves.go†L742-L787】
+* **Mist Shroud handler** – Monitor direction pivots for sliders, consume the once-per-turn `FreeTurnsUsed` credit, and emit either the free-pivot or penalty note. 【F:chessTest/internal/game/moves.go†L702-L727】
+
+Centralising these behaviors inside ability-owned hooks ensures the core engine no longer needs to mutate `MoveState` fields directly for Flood Wake, Blaze Rush, or Mist Shroud while still providing `hasFreeContinuation` the same data it reads today.
 
