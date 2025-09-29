@@ -15,7 +15,6 @@ type MoveState struct {
 	Path                []Square
 	Captures            []*Piece
 	AbilityData         map[Ability]*AbilityRuntime
-	MaxCaptures         int
 	TurnEnded           bool
 	LastSegmentCaptured bool
 	Promotion           PieceType
@@ -108,6 +107,7 @@ const (
 	abilityCounterCaptureSquare    = "captureSquare"
 	abilityCounterCaptureSegment   = "captureSegment"
 	abilityCounterCaptureEnPassant = "captureEnPassant"
+	abilityCounterResurrectionHold = "resurrectionHold"
 )
 
 func (ms *MoveState) ensureAbilityData() {
@@ -259,6 +259,10 @@ func (e *Engine) instantiateAbilityHandlers(pc *Piece) (map[Ability][]AbilityHan
 		ensureHandlers()
 		handlers[AbilityQuantumKill] = append(handlers[AbilityQuantumKill], NewQuantumKillHandler())
 	}
+	if pc.Abilities.Contains(AbilityChainKill) && len(handlers[AbilityChainKill]) == 0 {
+		ensureHandlers()
+		handlers[AbilityChainKill] = append(handlers[AbilityChainKill], NewChainKillHandler())
+	}
 	if pc.Abilities.Contains(AbilityPoisonousMeat) && len(handlers[AbilityPoisonousMeat]) == 0 {
 		ensureHandlers()
 		handlers[AbilityPoisonousMeat] = append(handlers[AbilityPoisonousMeat], NewPoisonousMeatHandler())
@@ -274,6 +278,10 @@ func (e *Engine) instantiateAbilityHandlers(pc *Piece) (map[Ability][]AbilityHan
 	if pc.Abilities.Contains(AbilityTemporalLock) && len(handlers[AbilityTemporalLock]) == 0 {
 		ensureHandlers()
 		handlers[AbilityTemporalLock] = append(handlers[AbilityTemporalLock], NewTemporalLockHandler())
+	}
+	if pc.Abilities.Contains(AbilityResurrection) && len(handlers[AbilityResurrection]) == 0 {
+		ensureHandlers()
+		handlers[AbilityResurrection] = append(handlers[AbilityResurrection], NewResurrectionHandler())
 	}
 
 	if len(handlers) == 0 {
@@ -638,24 +646,74 @@ func newAbilityRuntimeMap(abilities AbilityList) map[Ability]*AbilityRuntime {
 	return runtimes
 }
 
+func (ms *MoveState) captureCount() int {
+	if ms == nil {
+		return 0
+	}
+	captures := ms.abilityCounter(AbilityNone, abilityCounterCaptures)
+	if captures == 0 && len(ms.Captures) > 0 {
+		return len(ms.Captures)
+	}
+	return captures
+}
+
+func (ms *MoveState) captureLimit() int {
+	if ms == nil {
+		return 0
+	}
+	return ms.abilityCounter(AbilityNone, abilityCounterCaptureLimit)
+}
+
+func (ms *MoveState) setCaptureLimit(limit int) {
+	if ms == nil {
+		return
+	}
+	if limit < 0 {
+		limit = 0
+	}
+	ms.setAbilityCounter(AbilityNone, abilityCounterCaptureLimit, limit)
+}
+
+func (ms *MoveState) increaseCaptureLimit(delta int) {
+	if ms == nil || delta == 0 {
+		return
+	}
+	current := ms.captureLimit()
+	ms.setCaptureLimit(current + delta)
+}
+
+func (ms *MoveState) extraRemovalConsumed() bool {
+	if ms == nil {
+		return false
+	}
+	return ms.abilityFlag(AbilityNone, abilityFlagCaptureExtra)
+}
+
+func (ms *MoveState) resetExtraRemoval() {
+	if ms == nil {
+		return
+	}
+	ms.setAbilityFlag(AbilityNone, abilityFlagCaptureExtra, false)
+}
+
+func (ms *MoveState) markExtraRemovalConsumed() {
+	if ms == nil {
+		return
+	}
+	ms.setAbilityFlag(AbilityNone, abilityFlagCaptureExtra, true)
+}
+
 func (ms *MoveState) canCaptureMore() bool {
 	if ms == nil {
 		return false
 	}
 
-	captures := ms.abilityCounter(AbilityNone, abilityCounterCaptures)
-	if captures == 0 && len(ms.Captures) > 0 {
-		captures = len(ms.Captures)
-	}
-
-	limit := ms.abilityCounter(AbilityNone, abilityCounterCaptureLimit)
-	if limit == 0 {
-		limit = ms.MaxCaptures
-	}
-
+	captures := ms.captureCount()
 	if captures == 0 {
 		return true
 	}
+
+	limit := ms.captureLimit()
 	if limit <= 0 {
 		return true
 	}
@@ -670,9 +728,6 @@ func (ms *MoveState) registerCapture(meta SegmentMetadata) {
 	ms.Captures = append(ms.Captures, meta.Capture)
 
 	ms.addAbilityCounter(AbilityNone, abilityCounterCaptures, 1)
-	if ms.abilityCounter(AbilityNone, abilityCounterCaptureLimit) == 0 && ms.MaxCaptures != 0 {
-		ms.setAbilityCounter(AbilityNone, abilityCounterCaptureLimit, ms.MaxCaptures)
-	}
 
 	step := len(ms.Path)
 	if step >= 2 {
@@ -683,11 +738,6 @@ func (ms *MoveState) registerCapture(meta SegmentMetadata) {
 	ms.setAbilityCounter(AbilityNone, abilityCounterCaptureSegment, step)
 	ms.setAbilityCounter(AbilityNone, abilityCounterCaptureSquare, int(meta.CaptureSquare))
 	ms.setAbilityCounter(AbilityNone, abilityCounterCaptureEnPassant, boolToInt(meta.EnPassant))
-
-	if ms.Piece != nil && ms.Piece.Abilities.Contains(AbilityResurrection) {
-		ms.setAbilityFlag(AbilityResurrection, abilityFlagWindow, true)
-		ms.setAbilityCounter(AbilityResurrection, abilityFlagWindow, 1)
-	}
 }
 
 func boolToInt(v bool) int {
@@ -695,14 +745,6 @@ func boolToInt(v bool) int {
 		return 1
 	}
 	return 0
-}
-
-func (e *Engine) calculateMaxCaptures(pc *Piece) int {
-	maxCaptures := 1 // Base capture limit
-	if len(e.handlersForAbility(AbilityChainKill)) == 0 && pc != nil && pc.Abilities.Contains(AbilityChainKill) {
-		maxCaptures += 2 // Chain Kill allows 2 additional captures
-	}
-	return maxCaptures
 }
 
 func (e *Engine) checkPostCaptureTermination(pc *Piece, target *Piece) bool {
@@ -786,21 +828,18 @@ func (e *Engine) startNewMove(req MoveRequest) error {
 		remainingSteps = 0
 	}
 
-	maxCaptures := e.calculateMaxCaptures(pc)
-
 	e.currentMove = &MoveState{
 		Piece:          pc,
 		RemainingSteps: remainingSteps,
 		Path:           []Square{from},
 		Captures:       []*Piece{},
 		AbilityData:    newAbilityRuntimeMap(pc.Abilities),
-		MaxCaptures:    maxCaptures,
 		Promotion:      req.Promotion,
 		PromotionSet:   req.HasPromotion,
 		Handlers:       handlers,
 	}
 
-	e.currentMove.setAbilityCounter(AbilityNone, abilityCounterCaptureLimit, maxCaptures)
+	e.currentMove.setCaptureLimit(1)
 	e.currentMove.setAbilityCounter(AbilityNone, abilityCounterCaptures, len(e.currentMove.Captures))
 	e.currentMove.setAbilityCounter(AbilityNone, abilityCounterCaptureSegment, -1)
 	e.currentMove.setAbilityCounter(AbilityNone, abilityCounterCaptureSquare, -1)
@@ -2129,12 +2168,6 @@ func (e *Engine) isLegalFirstSegment(pc *Piece, from, to Square) bool {
 
 // isLegalContinuation checks if a subsequent move segment is valid.
 func (e *Engine) isLegalContinuation(pc *Piece, from, to Square) bool {
-	// For Chain Kill, any legal move is a valid continuation to another capture.
-	target := e.board.pieceAt[to]
-	if len(e.handlersForAbility(AbilityChainKill)) == 0 && pc.Abilities.Contains(AbilityChainKill) && target != nil && target.Color != pc.Color {
-		return e.isLegalFirstSegment(pc, from, to)
-	}
-
 	// For normal continuations, movement rules are more restrictive.
 	// This could be, for example, continuing a slide in the same direction.
 	// For simplicity, we'll allow any legal move for now.

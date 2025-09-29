@@ -10,13 +10,13 @@ type doubleKillHandler struct {
 }
 
 func (doubleKillHandler) ResolveCapture(ctx CaptureContext) (CaptureOutcome, error) {
-	if ctx.Engine == nil || ctx.Attacker == nil || ctx.Victim == nil {
+	if ctx.Engine == nil || ctx.Attacker == nil || ctx.Victim == nil || ctx.Move == nil {
+		return CaptureOutcome{}, nil
+	}
+	if ctx.Move.extraRemovalConsumed() {
 		return CaptureOutcome{}, nil
 	}
 	attacker := ctx.Attacker
-	if !attacker.Abilities.Contains(AbilityDoubleKill) {
-		return CaptureOutcome{}, nil
-	}
 	target := ctx.Engine.trySmartExtraCapture(attacker, ctx.CaptureSquare, ctx.Victim.Color, rankOf(ctx.Victim.Type))
 	if target == nil {
 		return CaptureOutcome{}, nil
@@ -30,9 +30,7 @@ func (doubleKillHandler) ResolveCapture(ctx CaptureContext) (CaptureOutcome, err
 		return CaptureOutcome{}, nil
 	}
 	appendAbilityNote(&ctx.Engine.board.lastNote, fmt.Sprintf("DoubleKill: removed %s %s at %s", target.Color, target.Type, targetSquare))
-	if ctx.Move != nil {
-		ctx.Move.setAbilityFlag(AbilityNone, abilityFlagCaptureExtra, true)
-	}
+	ctx.Move.markExtraRemovalConsumed()
 	return CaptureOutcome{}, nil
 }
 
@@ -47,13 +45,10 @@ func (scorchHandler) ResolveCapture(ctx CaptureContext) (CaptureOutcome, error) 
 	if ctx.Engine == nil || ctx.Attacker == nil || ctx.Victim == nil || ctx.Move == nil {
 		return CaptureOutcome{}, nil
 	}
+	if ctx.Move.extraRemovalConsumed() {
+		return CaptureOutcome{}, nil
+	}
 	attacker := ctx.Attacker
-	if !attacker.Abilities.Contains(AbilityScorch) {
-		return CaptureOutcome{}, nil
-	}
-	if ctx.Move.abilityFlag(AbilityNone, abilityFlagCaptureExtra) {
-		return CaptureOutcome{}, nil
-	}
 	if elementOf(ctx.Engine, attacker) != ElementFire {
 		return CaptureOutcome{}, nil
 	}
@@ -70,7 +65,7 @@ func (scorchHandler) ResolveCapture(ctx CaptureContext) (CaptureOutcome, error) 
 		return CaptureOutcome{}, nil
 	}
 	appendAbilityNote(&ctx.Engine.board.lastNote, fmt.Sprintf("Fire Scorch: removed %s %s at %s", target.Color, target.Type, targetSquare))
-	ctx.Move.setAbilityFlag(AbilityNone, abilityFlagCaptureExtra, true)
+	ctx.Move.markExtraRemovalConsumed()
 	return CaptureOutcome{}, nil
 }
 
@@ -85,14 +80,11 @@ func (quantumKillHandler) ResolveCapture(ctx CaptureContext) (CaptureOutcome, er
 	if ctx.Engine == nil || ctx.Attacker == nil || ctx.Victim == nil || ctx.Move == nil {
 		return CaptureOutcome{}, nil
 	}
-	attacker := ctx.Attacker
-	if !attacker.Abilities.Contains(AbilityQuantumKill) {
-		return CaptureOutcome{}, nil
-	}
 	if ctx.Move.abilityUsed(AbilityQuantumKill) {
 		return CaptureOutcome{}, nil
 	}
 	ctx.Move.markAbilityUsed(AbilityQuantumKill)
+	attacker := ctx.Attacker
 	victimColor := ctx.Victim.Color
 	victimRank := rankOf(ctx.Victim.Type)
 	target := ctx.Engine.findQuantumKillTarget(attacker, victimColor, victimRank)
