@@ -4,7 +4,7 @@
   // ===== Bootstrap & shared state =====
   const initScript = document.getElementById("__init");
   const init = initScript ? JSON.parse(initScript.textContent || "{}") : {};
-  let state = init.state || {
+  const defaultState = {
     pieces: [],        // [{id, type, color, square, element?}]
     blockFacing: {},   // { [pieceId]: directionIndex }
     abilities: {},
@@ -14,6 +14,8 @@
     lastNote: "",
     locked: false
   };
+  let state = Object.assign({}, defaultState, init.state || {});
+  state.locked = !!state.locked;
   let selectedSquare = null;   // 0..63
   let possibleMoves = [];      // UI hint only
   let isAnimating = false;
@@ -353,7 +355,8 @@
   // ===== State/UI =====
   function updateState(res) {
     const st = res && (res.state || res) || {};
-    state = st;
+    state = Object.assign({}, state || defaultState, st);
+    state.locked = !!state.locked;
     renderBoard();
     updateConfigUI();
     updateMoveUI();

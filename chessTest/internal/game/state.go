@@ -145,6 +145,7 @@ type BoardState struct {
 	Abilities   map[string][]string `json:"abilities"`
 	Elements    map[string]string   `json:"elements"`
 	BlockFacing map[int]Direction   `json:"blockFacing"`
+	Locked      bool                `json:"locked"`
 }
 
 // ---------------------------
@@ -276,6 +277,7 @@ func (e *Engine) State() BoardState {
 		Abilities:   make(map[string][]string),
 		Elements:    make(map[string]string),
 		BlockFacing: make(map[int]Direction),
+		Locked:      e.locked,
 	}
 
 	for _, pc := range e.board.pieceAt {
