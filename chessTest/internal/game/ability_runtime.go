@@ -198,6 +198,26 @@ type CaptureOutcome struct {
 	ForceTurnEnd   bool
 }
 
+// ResurrectionContext captures the runtime data needed for handlers managing
+// Resurrection windows.
+type ResurrectionContext struct {
+	Engine *Engine
+	Move   *MoveState
+	Piece  *Piece
+}
+
+// ResurrectionWindowHandler allows abilities to expose whether the
+// resurrection capture window is currently active.
+type ResurrectionWindowHandler interface {
+	ResurrectionWindowActive(ctx ResurrectionContext) bool
+}
+
+// ResurrectionCaptureWindowHandler lets abilities contribute capture squares
+// while the resurrection window is live.
+type ResurrectionCaptureWindowHandler interface {
+	AddResurrectionCaptureWindow(ctx ResurrectionContext, moves Bitboard) Bitboard
+}
+
 // Merge combines the receiver with another outcome, accumulating step deltas
 // and preserving any forced turn termination requests.
 func (o CaptureOutcome) Merge(other CaptureOutcome) CaptureOutcome {

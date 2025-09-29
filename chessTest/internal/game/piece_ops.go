@@ -207,23 +207,34 @@ func (e *Engine) canPhaseThrough(pc *Piece, from Square, to Square) bool {
 		return false
 	}
 
-	if handlers := e.activeHandlers(); len(handlers) > 0 {
+	handlerMaps := []map[Ability][]AbilityHandler{}
+	primary := e.activeHandlers()
+	if len(primary) > 0 {
+		handlerMaps = append(handlerMaps, primary)
+	}
+	if sideHandlers, err := e.instantiateSideAbilityHandlers(pc, primary); err == nil && len(sideHandlers) > 0 {
+		handlerMaps = append(handlerMaps, sideHandlers)
+	}
+
+	if len(handlerMaps) > 0 {
 		ctx := &e.abilityCtx.phase
 		*ctx = PhaseContext{Engine: e, Piece: pc, From: from, To: to}
 		defer func() {
 			e.abilityCtx.phase = PhaseContext{}
 		}()
-		for _, handlerList := range handlers {
-			for _, handler := range handlerList {
-				if handler == nil {
-					continue
-				}
-				allowed, err := handler.CanPhase(*ctx)
-				if err != nil {
-					continue
-				}
-				if allowed {
-					return true
+		for _, handlerMap := range handlerMaps {
+			for _, handlerList := range handlerMap {
+				for _, handler := range handlerList {
+					if handler == nil {
+						continue
+					}
+					allowed, err := handler.CanPhase(*ctx)
+					if err != nil {
+						continue
+					}
+					if allowed {
+						return true
+					}
 				}
 			}
 		}

@@ -285,6 +285,42 @@ func (e *Engine) instantiateAbilityHandlers(pc *Piece) (map[Ability][]AbilityHan
 	return handlers, nil
 }
 
+func (e *Engine) instantiateSideAbilityHandlers(pc *Piece, existing map[Ability][]AbilityHandler) (map[Ability][]AbilityHandler, error) {
+	if pc == nil {
+		return nil, nil
+	}
+
+	abilities := e.abilities[pc.Color.Index()]
+	if len(abilities) == 0 {
+		return nil, nil
+	}
+
+	var handlers map[Ability][]AbilityHandler
+	for _, ability := range abilities {
+		if ability == AbilityNone {
+			continue
+		}
+		if existing != nil && len(existing[ability]) > 0 {
+			continue
+		}
+		handler, err := resolveAbilityHandler(ability)
+		if err != nil {
+			if errors.Is(err, ErrAbilityNotRegistered) {
+				continue
+			}
+			return nil, err
+		}
+		if handler == nil {
+			continue
+		}
+		if handlers == nil {
+			handlers = make(map[Ability][]AbilityHandler)
+		}
+		handlers[ability] = append(handlers[ability], handler)
+	}
+	return handlers, nil
+}
+
 func (e *Engine) activeHandlers() map[Ability][]AbilityHandler {
 	if e.currentMove != nil && len(e.currentMove.Handlers) > 0 {
 		return e.currentMove.Handlers
@@ -1543,7 +1579,13 @@ func (e *Engine) baseStepBudget(pc *Piece) int {
 
 func (e *Engine) calculateStepBudget(pc *Piece, handlers map[Ability][]AbilityHandler) (int, []string, error) {
 	total := e.baseStepBudget(pc)
-	if len(handlers) == 0 {
+
+	sideHandlers, err := e.instantiateSideAbilityHandlers(pc, handlers)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	if len(handlers) == 0 && len(sideHandlers) == 0 {
 		return total, nil, nil
 	}
 
@@ -1553,19 +1595,31 @@ func (e *Engine) calculateStepBudget(pc *Piece, handlers map[Ability][]AbilityHa
 		e.abilityCtx.stepBudget = StepBudgetContext{}
 	}()
 
+	apply := func(handler AbilityHandler, notes *[]string) error {
+		if handler == nil {
+			return nil
+		}
+		delta, err := handler.StepBudgetModifier(*ctx)
+		if err != nil {
+			return err
+		}
+		total += delta.AddSteps
+		if len(delta.Notes) > 0 {
+			*notes = append(*notes, delta.Notes...)
+		}
+		return nil
+	}
+
 	var notes []string
-	for _, handlerList := range handlers {
-		for _, handler := range handlerList {
-			if handler == nil {
-				continue
-			}
-			delta, err := handler.StepBudgetModifier(*ctx)
-			if err != nil {
-				return 0, nil, err
-			}
-			total += delta.AddSteps
-			if len(delta.Notes) > 0 {
-				notes = append(notes, delta.Notes...)
+	for _, handlerMap := range []map[Ability][]AbilityHandler{handlers, sideHandlers} {
+		if len(handlerMap) == 0 {
+			continue
+		}
+		for _, handlerList := range handlerMap {
+			for _, handler := range handlerList {
+				if err := apply(handler, &notes); err != nil {
+					return 0, nil, err
+				}
 			}
 		}
 	}
