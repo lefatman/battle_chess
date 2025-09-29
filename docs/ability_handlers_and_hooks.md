@@ -62,6 +62,27 @@ The entrypoint for a turn front-loads several ability- and flag-aware decisions 
 6. **Capture aftermath.** Captures enqueue resurrection and Chain Kill bookkeeping via `registerCapture`, then invoke `ResolveCaptureAbility` for chained removals and penalties before `canCaptureMore` decides whether the move may continue. 【F:chessTest/internal/game/moves.go†L301-L310】
 7. **Forced turn endings.** After every segment the engine first asks `shouldEndTurnAfterCapture` (via `checkPostCaptureTermination`) and then checks for step exhaustion, only allowing the turn to continue if a Blaze Rush or Flood Wake free continuation is available. 【F:chessTest/internal/game/moves.go†L313-L318】【F:chessTest/internal/game/moves.go†L729-L739】【F:chessTest/internal/game/moves.go†L858-L890】
 
+### Resurrection window flow
+
+* **Capture raises the flag.** `registerCapture` turns on `ResurrectionWindow` whenever the attacker cached `HasResurrection`, creating a single-action opportunity for the vertical follow-up. 【F:chessTest/internal/game/moves.go†L48-L59】
+* **Normal continuations consume it.** `continueMove` clears the flag before processing the requested destination so the resurrection follow-up must be taken immediately after the capture input. 【F:chessTest/internal/game/moves.go†L239-L320】
+* **Special moves also close it.** Both Side Step and Quantum Step branches spend a step, perform their displacement, and then explicitly zero `ResurrectionWindow`, preventing the window from carrying through ability-driven displacements. 【F:chessTest/internal/game/moves.go†L325-L419】
+* **Turn cleanup removes the state.** Any early termination invoked from these branches funnels into `endTurn`, which discards `currentMove` entirely and therefore resets the window for the next mover. 【F:chessTest/internal/game/moves.go†L500-L554】
+
+#### Move generation augmentation
+
+When `generateMoves` runs for a Resurrection piece, it first checks `resurrectionWindowActive` to confirm the piece is still the active mover and that the capture window flag remains raised. Only then does it call `addResurrectionCaptureWindow`, which adds the two vertical capture squares above and below the piece to the candidate move set if hostile units are present. 【F:chessTest/internal/game/engine.go†L420-L664】
+
+#### Handler design implications
+
+To migrate Resurrection into an ability-owned handler, the implementation must continue supplying two pieces of runtime state: the cached `HasResurrection` toggle seeded at move start and the per-segment `ResurrectionWindow` flag that is raised on captures. The handler’s hooks therefore need to:
+
+* **Open the window on capture resolution** via an `OnCaptureResolved`-style callback that mirrors `registerCapture`’s mutation. 【F:chessTest/internal/game/moves.go†L48-L59】【F:chessTest/internal/game/moves.go†L301-L310】
+* **Augment legal moves while the window is live** by extending the active mover’s capture targets with the vertical squares supplied by `addResurrectionCaptureWindow`. 【F:chessTest/internal/game/engine.go†L420-L664】
+* **Close the window after the next action**, including Side Step, Quantum Step, and any standard continuation, so the resurrection follow-up cannot queue additional segments beyond the intended one-step opportunity. 【F:chessTest/internal/game/moves.go†L239-L419】
+
+These hooks collectively ensure the resurrection window is opened exactly once per capture, expires on the next action regardless of its source, and exposes the extra capture vector only while the flag remains set.
+
 ### Helper side effects referenced by `continueMove`
 
 * `trySideStepNudge` writes undo history, spends one step, sets `SideStepUsed`, clears the resurrection window, and funnels into `handlePostSegment` so Flood Wake, Blaze Rush, and Mist Shroud hooks fire before the post-action termination logic. 【F:chessTest/internal/game/moves.go†L340-L365】
