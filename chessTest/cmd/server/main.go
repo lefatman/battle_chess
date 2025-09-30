@@ -11,8 +11,7 @@ import (
 	"strings"
 
 	// Adjust these imports to your actual module paths if different.
-	"battle_chess_poc/internal/game" // your engine: NewEngine(), SetSideConfig(...), etc.
-	_ "battle_chess_poc/internal/game/abilities"
+	"battle_chess_poc/internal/game"  // your engine: NewEngine(), SetSideConfig(...), etc.
 	"battle_chess_poc/internal/httpx" // your HTTP server wrapper exposing Listen(engine) or similar
 )
 
@@ -68,7 +67,7 @@ func parseAbilitiesCSV(s string) (game.AbilityList, error) {
 	for _, p := range parts {
 		a, ok := game.ParseAbility(strings.TrimSpace(p))
 		if !ok {
-			return nil, fmt.Errorf("invalid ability %q; valid: %v", p, game.AbilityStrings()) // abilities list from your game pkg. :contentReference[oaicite:2]{index=2}
+			return nil, fmt.Errorf("invalid ability %q; valid: %v", p, game.AbilityStrings())
 		}
 		out = append(out, a)
 	}

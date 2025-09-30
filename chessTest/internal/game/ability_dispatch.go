@@ -141,11 +141,6 @@ func (e *Engine) instantiateAbilityHandlers(pc *Piece) (*abilityHandlerTable, er
 			}
 		case errors.Is(err, ErrAbilityNotRegistered):
 			// rely on fallback registry
-		case errors.Is(err, ErrAbilityFactoryNotConfigured):
-			if table != nil {
-				releaseAbilityHandlers(table)
-			}
-			return nil, err
 		default:
 			if table != nil {
 				releaseAbilityHandlers(table)
@@ -209,17 +204,21 @@ func (e *Engine) instantiateSideAbilityHandlers(pc *Piece, existing *abilityHand
 				table.append(ability, handler)
 			}
 		case errors.Is(err, ErrAbilityNotRegistered):
-			continue
-		case errors.Is(err, ErrAbilityFactoryNotConfigured):
-			if table != nil {
-				releaseAbilityHandlers(table)
-			}
-			return nil, err
+			// rely on fallback registry
 		default:
 			if table != nil {
 				releaseAbilityHandlers(table)
 			}
 			return nil, err
+		}
+
+		if table == nil || !table.has(ability) {
+			if fallback := fallbackHandlersFor(ability); len(fallback) > 0 {
+				if table == nil {
+					table = borrowAbilityHandlers()
+				}
+				table.appendAll(ability, fallback)
+			}
 		}
 	}
 
