@@ -431,7 +431,7 @@ func (e *Engine) selectPromotionPiece() PieceType {
 
 func (e *Engine) isSlider(pt PieceType) bool { return pt == Queen || pt == Rook || pt == Bishop }
 
-var RankOrder = map[PieceType]int{King: 5, Queen: 4, Rook: 3, Bishop: 2, Knight: 2, Pawn: 1}
+var RankOrder = map[PieceType]int{King: 5, Queen: 4, Rook: 3, Bishop: 3, Knight: 2, Pawn: 1}
 
 func rankOf(pt PieceType) int { return RankOrder[pt] }
 

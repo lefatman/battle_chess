@@ -1039,6 +1039,35 @@ func TestBelligerentBlocksHigherRankCapture(t *testing.T) {
 	}
 }
 
+func TestBelligerentKnightCannotCaptureBishop(t *testing.T) {
+	eng := NewEngine()
+	if err := eng.SetSideConfig(White, AbilityList{AbilityBelligerent}, ElementLight); err != nil {
+		t.Fatalf("configure white: %v", err)
+	}
+	if err := eng.SetSideConfig(Black, AbilityList{AbilityDoOver}, ElementShadow); err != nil {
+		t.Fatalf("configure black: %v", err)
+	}
+
+	clearBoard(eng)
+
+	knightSq := mustSquare(t, "c3")
+	bishopSq := mustSquare(t, "e4")
+
+	eng.placePiece(White, Knight, knightSq)
+	eng.placePiece(Black, Bishop, bishopSq)
+	eng.board.turn = White
+
+	if err := eng.Move(MoveRequest{From: knightSq, To: bishopSq, Dir: DirNone}); err == nil {
+		t.Fatalf("expected belligerent knight capture of bishop to be rejected")
+	}
+	if pc := eng.board.pieceAt[knightSq]; pc == nil || pc.Color != White || pc.Type != Knight {
+		t.Fatalf("expected white knight to remain on %s", knightSq.String())
+	}
+	if pc := eng.board.pieceAt[bishopSq]; pc == nil || pc.Color != Black || pc.Type != Bishop {
+		t.Fatalf("expected black bishop to remain on %s", bishopSq.String())
+	}
+}
+
 func TestBelligerentAllowsEqualRankCapture(t *testing.T) {
 	eng := NewEngine()
 	if err := eng.SetSideConfig(White, AbilityList{AbilitySideStep}, ElementLight); err != nil {
