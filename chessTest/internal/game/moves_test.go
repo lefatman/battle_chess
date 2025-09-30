@@ -8,12 +8,6 @@ import (
 	"testing"
 )
 
-func init() {
-	RegisterAbilityFactory(func(Ability) (AbilityHandler, error) {
-		return nil, ErrAbilityNotRegistered
-	})
-}
-
 func TestMoveStateAbilityRuntimeZeroAlloc(t *testing.T) {
 	pc := &Piece{}
 	pc.SetAbilities(AbilityList{AbilityResurrection, AbilityMistShroud})
