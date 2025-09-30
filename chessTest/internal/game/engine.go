@@ -109,6 +109,7 @@ func (e *Engine) Move(req MoveRequest) error {
 		e.board.removePiece(captureIdx)
 	}
 	e.board.movePiece(idx, req.To)
+	seed := uint64(e.board.ply)<<32 | uint64(e.board.ids[idx])<<16 | uint64(req.To)
 	ctx := resolveContext{
 		board:        &e.board,
 		mover:        idx,
@@ -118,8 +119,14 @@ func (e *Engine) Move(req MoveRequest) error {
 		enemyMask:    e.abilityMask[enemyColor.Index()],
 		doOverUsed:   &e.doOverUsed,
 		requestedDir: req.Dir,
+		sideElement:  e.elements[color.Index()],
+		enemyElement: e.elements[enemyColor.Index()],
+		seed:         seed,
 	}
-	res := e.resolver.resolve(ctx)
+	res, err := e.resolver.resolve(ctx)
+	if err != nil {
+		return err
+	}
 	if res.doOver {
 		last := e.history[len(e.history)-1]
 		e.board = last

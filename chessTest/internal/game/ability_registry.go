@@ -191,6 +191,13 @@ const (
 	AbilityScorch
 	AbilityBlazeRush
 	AbilityFloodWake
+	AbilityBastion
+	AbilitySturdy
+	AbilityGaleLift
+	AbilityRaijin
+	AbilityBlinding
+	AbilityAnarchist
+	AbilitySadist
 	abilityCount
 )
 
@@ -236,6 +243,13 @@ var abilityCatalog = []abilityEntry{
 	{AbilityScorch, "Scorch", nil},
 	{AbilityBlazeRush, "BlazeRush", []string{"blaze rush"}},
 	{AbilityFloodWake, "FloodWake", []string{"flood wake"}},
+	{AbilityBastion, "Bastion", nil},
+	{AbilitySturdy, "Sturdy", nil},
+	{AbilityGaleLift, "GaleLift", []string{"gale lift"}},
+	{AbilityRaijin, "Raijin", nil},
+	{AbilityBlinding, "Blinding", nil},
+	{AbilityAnarchist, "Anarchist", nil},
+	{AbilitySadist, "Sadist", nil},
 }
 
 var abilityNameByID map[Ability]string
