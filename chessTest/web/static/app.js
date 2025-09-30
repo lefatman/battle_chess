@@ -523,10 +523,19 @@
     const abilityMap = state.abilities || {};
     const configMap = state.config || {};
 
-    const whiteReady = Object.prototype.hasOwnProperty.call(abilityMap, "white")
-      || Object.prototype.hasOwnProperty.call(configMap, "white");
-    const blackReady = Object.prototype.hasOwnProperty.call(abilityMap, "black")
-      || Object.prototype.hasOwnProperty.call(configMap, "black");
+    const isReady = (team) => {
+      const abilityList = abilityMap[team];
+      if (Array.isArray(abilityList) && abilityList.length > 0) return true;
+
+      const cfg = configMap[team];
+      if (!cfg) return false;
+      if (Array.isArray(cfg)) return cfg.length > 0;
+      if (Array.isArray(cfg.abilities)) return cfg.abilities.length > 0;
+      return false;
+    };
+
+    const whiteReady = isReady("white");
+    const blackReady = isReady("black");
     const configured = whiteReady && blackReady;
 
     moveForm.style.display = "block";
