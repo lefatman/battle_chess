@@ -252,10 +252,19 @@ func (s *Server) handleMove(w http.ResponseWriter, r *http.Request) {
 	s.engineMu.Unlock()
 
 	if err != nil {
+		if errors.Is(err, game.ErrDoOverActivated) || errors.Is(err, game.ErrCaptureBlocked) {
+			writeJSON(w, struct {
+				State   game.BoardState `json:"state"`
+				Message string          `json:"message"`
+			}{State: state, Message: err.Error()})
+			return
+		}
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, map[string]any{"state": state})
+	writeJSON(w, struct {
+		State game.BoardState `json:"state"`
+	}{State: state})
 }
 
 // ---- API: config ----
