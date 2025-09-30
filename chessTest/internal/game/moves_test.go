@@ -46,6 +46,78 @@ func TestMoveStateAbilityRuntimeZeroAlloc(t *testing.T) {
 	}
 }
 
+func TestHistoryDeltaMoveSegmentZeroAlloc(t *testing.T) {
+	eng := NewEngine()
+
+	from := mustSquare(t, "e2")
+	to := mustSquare(t, "e4")
+
+	mover := eng.board.pieceAt[from]
+	if mover == nil {
+		t.Fatalf("expected piece on %s", from)
+	}
+
+	supportSq := mustSquare(t, "g1")
+	support := eng.board.pieceAt[supportSq]
+	if support == nil {
+		t.Fatalf("expected supporting piece")
+	}
+
+	eng.blockFacing[mover.ID] = DirN
+	eng.pendingDoOver[mover.ID] = true
+	delete(eng.blockFacing, support.ID)
+	delete(eng.pendingDoOver, support.ID)
+
+	delta := newHistoryDelta(eng)
+	eng.activeDelta = delta
+
+	runSegment := func(assert bool) {
+		delta.resetIndexes()
+		delta.squares = delta.squares[:0]
+		delta.blockFacing = delta.blockFacing[:0]
+		delta.pendingDoOver = delta.pendingDoOver[:0]
+
+		delta.recordBlockFacing(mover.ID, DirN, true)
+		delta.recordBlockFacing(support.ID, DirNone, false)
+		delta.recordPendingDoOver(mover.ID, true, true)
+		delta.recordPendingDoOver(support.ID, false, false)
+
+		eng.blockFacing[mover.ID] = DirS
+		eng.blockFacing[support.ID] = DirE
+		eng.pendingDoOver[mover.ID] = false
+		eng.pendingDoOver[support.ID] = true
+
+		eng.executeMoveSegment(from, to, moveSegmentContext{})
+		delta.apply(eng)
+
+		delta.squares = delta.squares[:0]
+		delta.blockFacing = delta.blockFacing[:0]
+		delta.pendingDoOver = delta.pendingDoOver[:0]
+
+		if !assert {
+			return
+		}
+		if eng.blockFacing[mover.ID] != DirN {
+			t.Fatalf("expected block facing restored to %v, got %v", DirN, eng.blockFacing[mover.ID])
+		}
+		if _, ok := eng.blockFacing[support.ID]; ok {
+			t.Fatalf("expected support block facing cleared")
+		}
+		if !eng.pendingDoOver[mover.ID] {
+			t.Fatalf("expected pending DoOver restored for mover")
+		}
+		if _, ok := eng.pendingDoOver[support.ID]; ok {
+			t.Fatalf("expected pending DoOver cleared for support piece")
+		}
+	}
+
+	runSegment(true)
+
+	if allocs := testing.AllocsPerRun(100, func() { runSegment(false) }); allocs != 0 {
+		t.Fatalf("expected zero allocations during history segment replay, got %f", allocs)
+	}
+}
+
 func TestSliderOpeningMovesDoNotPanic(t *testing.T) {
 	tests := []struct {
 		name     string

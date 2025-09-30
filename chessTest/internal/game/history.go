@@ -3,21 +3,23 @@ package game
 
 // historyDelta captures the minimal state needed to undo a single move segment.
 type historyDelta struct {
-	squares       []squareDelta
-	squareIndex   map[Square]int
-	blockFacing   map[int]blockFacingDelta
-	pendingDoOver map[int]pendingDoOverDelta
-	lastNote      string
-	castling      CastlingRights
-	enPassant     EnPassantTarget
-	turn          Color
-	inCheck       bool
-	gameOver      bool
-	hasWinner     bool
-	winner        Color
-	status        string
-	temporalSlow  [2]int
-	currentMove   *MoveState
+	squares            []squareDelta
+	squareIndex        [64]int16
+	blockFacingIndex   []int32
+	blockFacing        []blockFacingDelta
+	pendingDoOverIndex []int32
+	pendingDoOver      []pendingDoOverDelta
+	lastNote           string
+	castling           CastlingRights
+	enPassant          EnPassantTarget
+	turn               Color
+	inCheck            bool
+	gameOver           bool
+	hasWinner          bool
+	winner             Color
+	status             string
+	temporalSlow       [2]int
+	currentMove        *MoveState
 }
 
 type squareDelta struct {
@@ -32,30 +34,51 @@ type pieceSnapshot struct {
 }
 
 type blockFacingDelta struct {
+	id      int
 	existed bool
 	dir     Direction
 }
 
 type pendingDoOverDelta struct {
+	id      int
 	existed bool
 	value   bool
 }
 
+const (
+	historySquareUnset   int16 = -1
+	historyPieceIdxUnset int32 = -1
+
+	historySquareCap     = 8
+	historyPieceDeltaCap = 4
+)
+
 func newHistoryDelta(e *Engine) *historyDelta {
 	d := &historyDelta{
-		squareIndex:   make(map[Square]int),
-		blockFacing:   make(map[int]blockFacingDelta),
-		pendingDoOver: make(map[int]pendingDoOverDelta),
-		lastNote:      e.board.lastNote,
-		castling:      e.board.Castling,
-		enPassant:     e.board.EnPassant,
-		turn:          e.board.turn,
-		inCheck:       e.board.InCheck,
-		gameOver:      e.board.GameOver,
-		hasWinner:     e.board.HasWinner,
-		winner:        e.board.Winner,
-		status:        e.board.Status,
-		temporalSlow:  e.temporalSlow,
+		squares:            make([]squareDelta, 0, historySquareCap),
+		blockFacingIndex:   make([]int32, e.nextPieceID),
+		blockFacing:        make([]blockFacingDelta, 0, historyPieceDeltaCap),
+		pendingDoOverIndex: make([]int32, e.nextPieceID),
+		pendingDoOver:      make([]pendingDoOverDelta, 0, historyPieceDeltaCap),
+		lastNote:           e.board.lastNote,
+		castling:           e.board.Castling,
+		enPassant:          e.board.EnPassant,
+		turn:               e.board.turn,
+		inCheck:            e.board.InCheck,
+		gameOver:           e.board.GameOver,
+		hasWinner:          e.board.HasWinner,
+		winner:             e.board.Winner,
+		status:             e.board.Status,
+		temporalSlow:       e.temporalSlow,
+	}
+	for i := range d.squareIndex {
+		d.squareIndex[i] = historySquareUnset
+	}
+	for i := range d.blockFacingIndex {
+		d.blockFacingIndex[i] = historyPieceIdxUnset
+	}
+	for i := range d.pendingDoOverIndex {
+		d.pendingDoOverIndex[i] = historyPieceIdxUnset
 	}
 	if e.currentMove != nil {
 		d.currentMove = cloneMoveState(e.currentMove)
@@ -64,7 +87,8 @@ func newHistoryDelta(e *Engine) *historyDelta {
 }
 
 func (d *historyDelta) recordSquare(e *Engine, sq Square) {
-	if _, ok := d.squareIndex[sq]; ok {
+	idx := d.squareIndex[sq]
+	if idx != historySquareUnset {
 		return
 	}
 	entry := squareDelta{square: sq}
@@ -73,22 +97,32 @@ func (d *historyDelta) recordSquare(e *Engine, sq Square) {
 		entry.piece = pc
 		entry.snapshot = pieceSnapshot{pieceData: clonePieceState(pc)}
 	}
-	d.squareIndex[sq] = len(d.squares)
+	d.squareIndex[sq] = int16(len(d.squares))
 	d.squares = append(d.squares, entry)
 }
 
 func (d *historyDelta) recordBlockFacing(id int, dir Direction, existed bool) {
-	if _, ok := d.blockFacing[id]; ok {
+	if id < 0 {
 		return
 	}
-	d.blockFacing[id] = blockFacingDelta{existed: existed, dir: dir}
+	d.ensureBlockFacingCapacity(id)
+	if d.blockFacingIndex[id] != historyPieceIdxUnset {
+		return
+	}
+	d.blockFacingIndex[id] = int32(len(d.blockFacing))
+	d.blockFacing = append(d.blockFacing, blockFacingDelta{id: id, existed: existed, dir: dir})
 }
 
 func (d *historyDelta) recordPendingDoOver(id int, value bool, existed bool) {
-	if _, ok := d.pendingDoOver[id]; ok {
+	if id < 0 {
 		return
 	}
-	d.pendingDoOver[id] = pendingDoOverDelta{existed: existed, value: value}
+	d.ensurePendingDoOverCapacity(id)
+	if d.pendingDoOverIndex[id] != historyPieceIdxUnset {
+		return
+	}
+	d.pendingDoOverIndex[id] = int32(len(d.pendingDoOver))
+	d.pendingDoOver = append(d.pendingDoOver, pendingDoOverDelta{id: id, existed: existed, value: value})
 }
 
 func (d *historyDelta) apply(e *Engine) {
@@ -125,18 +159,18 @@ func (d *historyDelta) apply(e *Engine) {
 	e.board.lastNote = d.lastNote
 	e.temporalSlow = d.temporalSlow
 
-	for id, change := range d.blockFacing {
+	for _, change := range d.blockFacing {
 		if change.existed {
-			e.blockFacing[id] = change.dir
+			e.blockFacing[change.id] = change.dir
 		} else {
-			delete(e.blockFacing, id)
+			delete(e.blockFacing, change.id)
 		}
 	}
-	for id, change := range d.pendingDoOver {
+	for _, change := range d.pendingDoOver {
 		if change.existed {
-			e.pendingDoOver[id] = change.value
+			e.pendingDoOver[change.id] = change.value
 		} else {
-			delete(e.pendingDoOver, id)
+			delete(e.pendingDoOver, change.id)
 		}
 	}
 
@@ -146,6 +180,47 @@ func (d *historyDelta) apply(e *Engine) {
 		e.currentMove = nil
 	}
 	e.abilityCtx.clear()
+	d.resetIndexes()
+}
+
+func (d *historyDelta) ensureBlockFacingCapacity(id int) {
+	if id < len(d.blockFacingIndex) {
+		return
+	}
+	need := id + 1
+	old := len(d.blockFacingIndex)
+	d.blockFacingIndex = append(d.blockFacingIndex, make([]int32, need-old)...)
+	for i := old; i < len(d.blockFacingIndex); i++ {
+		d.blockFacingIndex[i] = historyPieceIdxUnset
+	}
+}
+
+func (d *historyDelta) ensurePendingDoOverCapacity(id int) {
+	if id < len(d.pendingDoOverIndex) {
+		return
+	}
+	need := id + 1
+	old := len(d.pendingDoOverIndex)
+	d.pendingDoOverIndex = append(d.pendingDoOverIndex, make([]int32, need-old)...)
+	for i := old; i < len(d.pendingDoOverIndex); i++ {
+		d.pendingDoOverIndex[i] = historyPieceIdxUnset
+	}
+}
+
+func (d *historyDelta) resetIndexes() {
+	for _, entry := range d.squares {
+		d.squareIndex[entry.square] = historySquareUnset
+	}
+	for _, change := range d.blockFacing {
+		if change.id >= 0 && change.id < len(d.blockFacingIndex) {
+			d.blockFacingIndex[change.id] = historyPieceIdxUnset
+		}
+	}
+	for _, change := range d.pendingDoOver {
+		if change.id >= 0 && change.id < len(d.pendingDoOverIndex) {
+			d.pendingDoOverIndex[change.id] = historyPieceIdxUnset
+		}
+	}
 }
 
 func clonePieceState(pc *Piece) Piece {
