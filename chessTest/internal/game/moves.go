@@ -163,7 +163,7 @@ func (e *Engine) startNewMove(req MoveRequest) error {
 	e.checkPostMoveAbilities(pc)
 	e.checkPostMoveAbilities(pc)
 
-	if e.checkPostCaptureTermination(pc, segmentCtx.capture) {
+	if e.checkPostCaptureTermination() {
 		e.endTurn(TurnEndForced)
 	} else if e.currentMove.RemainingSteps <= 0 && !e.hasFreeContinuation(pc) {
 		e.endTurn(TurnEndNatural)
@@ -321,7 +321,7 @@ func (e *Engine) continueMove(req MoveRequest) error {
 		}
 	}
 
-	if e.checkPostCaptureTermination(pc, segmentCtx.capture) {
+	if e.checkPostCaptureTermination() {
 		e.endTurn(TurnEndForced)
 	} else if e.currentMove.RemainingSteps <= 0 && !e.hasFreeContinuation(pc) {
 		e.endTurn(TurnEndNatural)

@@ -102,7 +102,7 @@ func boolToInt(v bool) int {
 	return 0
 }
 
-func (e *Engine) checkPostCaptureTermination(pc *Piece, target *Piece) bool {
+func (e *Engine) checkPostCaptureTermination() bool {
 	if e.currentMove == nil {
 		return false
 	}
