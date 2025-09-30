@@ -126,6 +126,65 @@ func TestHandleConfigAbilityAliases(t *testing.T) {
 	}
 }
 
+func TestFirstMoveAllowsBlockPathDirectionBeforeLock(t *testing.T) {
+	eng := game.NewEngine()
+	srv := &Server{engine: eng}
+
+	applyConfig := func(color string, abilities []string, element string) {
+		body, err := json.Marshal(configBody{Color: color, Abilities: abilities, Element: element})
+		if err != nil {
+			t.Fatalf("marshal body: %v", err)
+		}
+		req := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		srv.handleConfig(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("/api/config %s status = %d", color, rr.Code)
+		}
+	}
+
+	applyConfig("white", []string{"BlockPath"}, "light")
+	applyConfig("black", []string{"DoOver"}, "shadow")
+
+	if srv.engine.State().Locked {
+		t.Fatal("engine locked before first move")
+	}
+
+	moveBody := `{"from":"e2","to":"e4","dir":"N"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/move", strings.NewReader(moveBody))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	srv.handleMove(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("/api/move status = %d", rr.Code)
+	}
+
+	var payload struct {
+		State game.BoardState `json:"state"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode move response: %v", err)
+	}
+
+	e4, _ := game.CoordToSquare("e4")
+	var moved game.PieceState
+	for _, pc := range payload.State.Pieces {
+		if pc.Square == e4 {
+			moved = pc
+			break
+		}
+	}
+	if moved.ID == 0 {
+		t.Fatal("moved piece not found in response state")
+	}
+	if dir, ok := payload.State.BlockFacing[moved.ID]; !ok || dir != game.DirN {
+		t.Fatalf("expected block direction N, got %v (ok=%v)", dir, ok)
+	}
+}
+
 func equalStringSlices(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
