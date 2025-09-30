@@ -396,23 +396,30 @@
     const fromInput = document.getElementById("fromInput");
     const toInput = document.getElementById("toInput");
     const submitBtn = moveForm.querySelector('button[type="submit"]');
+    const abilityMap = state.abilities || {};
+    const configMap = state.config || {};
 
-    if (state.locked) {
-      moveForm.style.display = "block";
+    const whiteReady = Object.prototype.hasOwnProperty.call(abilityMap, "white")
+      || Object.prototype.hasOwnProperty.call(configMap, "white");
+    const blackReady = Object.prototype.hasOwnProperty.call(abilityMap, "black")
+      || Object.prototype.hasOwnProperty.call(configMap, "black");
+    const configured = whiteReady && blackReady;
+
+    moveForm.style.display = "block";
+    if (configured) {
       fromInput.disabled = false;
       toInput.disabled = false;
       dirSelect.disabled = false;
       submitBtn.disabled = false;
-      submitBtn.textContent = "⚔️ Execute Move";
+      submitBtn.textContent = state.locked ? "⚔️ Execute Move" : "⚔️ Execute Move (locks armies)";
     } else {
-      // Not locked - asking to configure first
-      moveForm.style.display = "block";
       fromInput.disabled = true;
       toInput.disabled = true;
       dirSelect.disabled = true;
       submitBtn.disabled = true;
-      submitBtn.textContent = "Configure sides to start";
+      submitBtn.textContent = "Configure both armies to start";
     }
+    updateMoveForm();
   }
 
   function updateMoveForm() {
