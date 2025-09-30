@@ -257,6 +257,16 @@
       // Optional client animation
       await animateMove(algToSq(from), algToSq(to));
       updateState(result);
+      const softMessage = result && typeof result.message === "string" ? result.message.trim() : "";
+      if (softMessage) {
+        showToast("Notice", softMessage);
+        logEvent("Notice", softMessage);
+        moveError.textContent = softMessage;
+        moveError.className = "warning";
+      } else {
+        moveError.textContent = "";
+        moveError.className = "";
+      }
       sounds.move();
       // Clear selection if success
       selectedSquare = null;
