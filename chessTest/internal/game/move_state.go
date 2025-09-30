@@ -74,10 +74,6 @@ func (ms *MoveState) markAbilityUsed(id Ability) {
 	ms.setAbilityFlag(id, abilityFlagUsed, true)
 }
 
-func (ms *MoveState) clearAbilityUsed(id Ability) {
-	ms.setAbilityFlag(id, abilityFlagUsed, false)
-}
-
 func (ms *MoveState) abilityCounter(id Ability, key abilityCounterIndex) int {
 	if ms == nil {
 		return 0

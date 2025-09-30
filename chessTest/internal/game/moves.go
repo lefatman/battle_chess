@@ -71,7 +71,7 @@ func (e *Engine) startNewMove(req MoveRequest) error {
 	if err != nil {
 		return err
 	}
-	firstSegmentCost := e.calculateMovementCost(pc, from, to)
+	firstSegmentCost := e.calculateMovementCost(from, to)
 	remainingSteps := totalSteps - firstSegmentCost
 	if remainingSteps < 0 {
 		remainingSteps = 0
@@ -207,7 +207,7 @@ func (e *Engine) continueMove(req MoveRequest) error {
 		return errors.New("illegal move continuation")
 	}
 
-	stepsNeeded := e.calculateMovementCost(pc, from, to)
+	stepsNeeded := e.calculateMovementCost(from, to)
 	target := e.board.pieceAt[to]
 	if target != nil && target.Color == pc.Color {
 		return errors.New("cannot capture a friendly piece")

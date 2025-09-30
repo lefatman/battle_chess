@@ -72,7 +72,7 @@ func (e *Engine) calculateStepBudget(pc *Piece, handlers *abilityHandlerTable) (
 	return total, notes, nil
 }
 
-func (e *Engine) calculateMovementCost(pc *Piece, from, to Square) int {
+func (e *Engine) calculateMovementCost(from, to Square) int {
 	cost := 1
 
 	if e.currentMove != nil && e.wouldChangeDirection(e.currentMove, from, to) {
