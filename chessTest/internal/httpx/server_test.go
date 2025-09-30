@@ -2,6 +2,7 @@
 package httpx
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -64,4 +65,75 @@ func TestHandleMoveDoOverReturnsState(t *testing.T) {
 		!strings.Contains(strings.ToLower(payload.State.LastNote), "do over") {
 		t.Fatalf("expected last note to mention do-over, got %q", payload.State.LastNote)
 	}
+}
+
+func TestHandleConfigAbilityAliases(t *testing.T) {
+	cases := []struct {
+		name      string
+		abilities []string
+	}{
+		{
+			name:      "CamelCase",
+			abilities: []string{"DoOver", "MistShroud"},
+		},
+		{
+			name:      "SpacedNames",
+			abilities: []string{"Do Over", "Mist Shroud"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			eng := game.NewEngine()
+			srv := &Server{engine: eng}
+
+			body, err := json.Marshal(configBody{
+				Color:     "white",
+				Abilities: tc.abilities,
+				Element:   "light",
+			})
+			if err != nil {
+				t.Fatalf("marshal body: %v", err)
+			}
+
+			req := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rr := httptest.NewRecorder()
+
+			srv.handleConfig(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Fatalf("expected status 200, got %d", rr.Code)
+			}
+
+			var resp struct {
+				State game.BoardState `json:"state"`
+			}
+			if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("decode body: %v", err)
+			}
+
+			expected := []string{"DoOver", "MistShroud"}
+			if got := resp.State.Abilities[game.White.String()]; !equalStringSlices(got, expected) {
+				t.Fatalf("unexpected ability list: got %v want %v", got, expected)
+			}
+
+			state := srv.engine.State()
+			if got := state.Abilities[game.White.String()]; !equalStringSlices(got, expected) {
+				t.Fatalf("engine state abilities mismatch: got %v want %v", got, expected)
+			}
+		})
+	}
+}
+
+func equalStringSlices(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

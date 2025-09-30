@@ -354,6 +354,9 @@ func parseColor(s string) (game.Color, bool) {
 }
 
 func parseAbility(s string) (game.Ability, bool) {
+	if ability, ok := game.ParseAbility(s); ok {
+		return ability, true
+	}
 	if s == "" {
 		return game.AbilityNone, false
 	}
