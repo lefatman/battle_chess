@@ -1,4 +1,4 @@
-// internal/httpx/server.go
+// path: chessTest/internal/httpx/server.go
 package httpx
 
 import (
@@ -9,13 +9,14 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"battle_chess_poc/internal/game"
 )
 
 // Server wires the HTTP layer to the chess engine and templates.
 type Server struct {
-	engineMu  sync.Mutex
+	engineMu  sync.RWMutex
 	engine    *game.Engine
 	tmpl      *template.Template
 	abilities []string
@@ -23,23 +24,34 @@ type Server struct {
 }
 
 // NewServer builds a Server, parses templates, and precomputes option lists.
-func NewServer(engine *game.Engine) *Server {
-	// Expect file at web/templates/index.html with: {{define "index"}}...{{end}}
-	t := template.Must(template.ParseFiles("web/templates/index.html"))
-
-	s := &Server{
-		engine:    engine,
-		tmpl:      t,
-		abilities: abilityNames(),
-		elements:  elementNames(),
+func NewServer(engine *game.Engine) (*Server, error) {
+	if engine == nil {
+		return nil, fmt.Errorf("nil engine")
 	}
-	return s
+	tmpl, err := template.ParseFiles("web/templates/index.html")
+	if err != nil {
+		return nil, fmt.Errorf("parse template: %w", err)
+	}
+	return &Server{
+		engine:    engine,
+		tmpl:      tmpl,
+		abilities: game.AbilityStrings(),
+		elements:  game.ElementStrings(),
+	}, nil
 }
 
 // Listen starts the HTTP server.
 func (s *Server) Listen(addr string) error {
-	log.Printf("HTTP listening on %s", addr)
-	return http.ListenAndServe(addr, s.routes())
+	server := &http.Server{
+		Addr:              addr,
+		Handler:           s.routes(),
+		ReadTimeout:       5 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 12,
+	}
+	return server.ListenAndServe()
 }
 
 // routes configures the ServeMux with UI, JSON APIs, static files.
@@ -67,19 +79,26 @@ func (s *Server) routes() http.Handler {
 // ---- UI ----
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	// Build initial payload embedding current engine state and option lists.
+	s.engineMu.RLock()
+	state := s.engine.State()
+	s.engineMu.RUnlock()
 	init := struct {
 		State     game.BoardState `json:"state"`
 		Abilities []string        `json:"abilities"`
 		Elements  []string        `json:"elements"`
 	}{
-		State:     s.engine.State(),
+		State:     state,
 		Abilities: s.abilities,
 		Elements:  s.elements,
 	}
-	data := map[string]any{
-		"Init": mustJSON(init),
+	payload, err := marshalInit(init)
+	if err != nil {
+		log.Printf("init marshal: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
 	}
+	data := map[string]any{"Init": payload}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// Execute template "index" from parsed file.
 	if err := s.tmpl.ExecuteTemplate(w, "index", data); err != nil {
 		log.Printf("template exec: %v", err)
@@ -90,9 +109,15 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 // ---- JSON helpers ----
 
+const maxBodyBytes = 64 << 10
+
 func (s *Server) withJSON(h func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+			defer r.Body.Close()
+		}
 		h(w, r)
 	}
 }
@@ -100,7 +125,9 @@ func (s *Server) withJSON(h func(http.ResponseWriter, *http.Request)) http.Handl
 func writeJSON(w http.ResponseWriter, v any) {
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
-	_ = enc.Encode(v)
+	if err := enc.Encode(v); err != nil {
+		log.Printf("json encode: %v", err)
+	}
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {
@@ -108,12 +135,12 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, map[string]string{"error": msg})
 }
 
-func mustJSON(v any) template.JS {
+func marshalInit(v any) (template.JS, error) {
 	b, err := json.Marshal(v)
 	if err != nil {
-		panic(err)
+		return "", err
 	}
-	return template.JS(b)
+	return template.JS(b), nil
 }
 
 // ---- API: state ----
@@ -123,9 +150,9 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	s.engineMu.Lock()
+	s.engineMu.RLock()
 	state := s.engine.State()
-	s.engineMu.Unlock()
+	s.engineMu.RUnlock()
 	writeJSON(w, map[string]any{"state": state})
 }
 
@@ -144,16 +171,18 @@ func (s *Server) handleMove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body moveBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	from, ok := game.CoordToSquare(strings.ToLower(strings.TrimSpace(body.From)))
+	from, ok := game.CoordToSquare(toLower(body.From))
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid from square")
 		return
 	}
-	to, ok := game.CoordToSquare(strings.ToLower(strings.TrimSpace(body.To)))
+	to, ok := game.CoordToSquare(toLower(body.To))
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid to square")
 		return
@@ -161,7 +190,7 @@ func (s *Server) handleMove(w http.ResponseWriter, r *http.Request) {
 	dir := parseDirection(body.Dir)
 
 	req := game.MoveRequest{From: from, To: to, Dir: dir}
-	if promotion := strings.TrimSpace(body.Promotion); promotion != "" {
+	if promotion := trim(body.Promotion); promotion != "" {
 		pt, ok := game.ParsePromotionPiece(promotion)
 		if !ok {
 			writeError(w, http.StatusBadRequest, "invalid promotion choice")
@@ -197,7 +226,9 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body configBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
@@ -261,62 +292,29 @@ func parseColor(s string) (game.Color, bool) {
 	}
 }
 
-func parseAbility(s string) (game.Ability, bool) {
-	if s == "" {
-		return game.AbilityNone, false
-	}
-	needle := strings.ToLower(strings.TrimSpace(s))
-	for _, a := range game.AllAbilities {
-		if strings.ToLower(a.String()) == needle {
-			return a, true
-		}
-	}
-	return game.AbilityNone, false
-}
-
 func parseElement(s string) (game.Element, bool) {
-	if s == "" {
-		return game.ElementLight, false
-	}
-	needle := strings.ToLower(strings.TrimSpace(s))
-	for _, e := range game.AllElements {
-		if strings.ToLower(e.String()) == needle {
-			return e, true
-		}
-	}
-	return game.ElementLight, false
+	elem, ok := game.ParseElement(s)
+	return elem, ok
 }
 
 func parseDirection(s string) game.Direction {
-	needle := strings.ToUpper(strings.TrimSpace(s))
-	switch needle {
-	case "", "AUTO":
-		return game.DirNone
-	case "N":
-		return game.DirN
-	case "NE":
-		return game.DirNE
-	case "E":
-		return game.DirE
-	case "SE":
-		return game.DirSE
-	case "S":
-		return game.DirS
-	case "SW":
-		return game.DirSW
-	case "W":
-		return game.DirW
-	case "NW":
-		return game.DirNW
-	default:
+	dir := trim(s)
+	if dir == "" || strings.EqualFold(dir, "auto") {
 		return game.DirNone
 	}
+	if parsed, ok := game.ParseDirection(strings.ToUpper(dir)); ok {
+		return parsed
+	}
+	return game.DirNone
 }
 
 func parseAbilities(list []string) (game.AbilityList, error) {
+	if len(list) == 0 {
+		return nil, fmt.Errorf("abilities cannot be empty")
+	}
 	abilities := make(game.AbilityList, 0, len(list))
 	for _, item := range list {
-		ability, ok := parseAbility(item)
+		ability, ok := game.ParseAbility(item)
 		if !ok {
 			return nil, fmt.Errorf("invalid ability %q", item)
 		}
@@ -325,18 +323,6 @@ func parseAbilities(list []string) (game.AbilityList, error) {
 	return abilities, nil
 }
 
-func abilityNames() []string {
-	out := make([]string, 0, len(game.AllAbilities))
-	for _, a := range game.AllAbilities {
-		out = append(out, a.String())
-	}
-	return out
-}
+func trim(s string) string { return strings.TrimSpace(s) }
 
-func elementNames() []string {
-	out := make([]string, 0, len(game.AllElements))
-	for _, e := range game.AllElements {
-		out = append(out, e.String())
-	}
-	return out
-}
+func toLower(s string) string { return strings.ToLower(trim(s)) }

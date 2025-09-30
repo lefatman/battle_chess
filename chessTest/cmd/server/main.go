@@ -10,9 +10,8 @@ import (
 	"os"
 	"strings"
 
-	// Adjust these imports to your actual module paths if different.
-	"battle_chess_poc/internal/game"  // your engine: NewEngine(), SetSideConfig(...), etc.
-	"battle_chess_poc/internal/httpx" // your HTTP server wrapper exposing Listen(engine) or similar
+	"battle_chess_poc/internal/game"
+	"battle_chess_poc/internal/httpx"
 )
 
 func main() {
@@ -50,7 +49,10 @@ func main() {
 		log.Printf("No preconfig. Both players must select Ability/Element before the match starts.")
 	}
 
-	srv := httpx.NewServer(eng)
+	srv, err := httpx.NewServer(eng)
+	if err != nil {
+		log.Fatalf("http init: %v", err)
+	}
 	log.Printf("HTTP listening on %s", *addr)
 	if err := srv.Listen(*addr); err != nil {
 		log.Fatal(err)
