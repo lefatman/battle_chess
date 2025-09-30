@@ -1,14 +1,17 @@
-// internal/httpx/server.go
+// path: chessTest/internal/httpx/server.go
 package httpx
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"log"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"battle_chess_poc/internal/game"
 )
@@ -20,7 +23,15 @@ type Server struct {
 	tmpl      *template.Template
 	abilities []string
 	elements  []string
+	srvMu     sync.Mutex
+	srv       *http.Server
 }
+
+const (
+	maxJSONBodyBytes int64 = 1 << 20
+	htmlCSP                = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+	apiCSP                 = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+)
 
 // NewServer builds a Server, parses templates, and precomputes option lists.
 func NewServer(engine *game.Engine) *Server {
@@ -38,8 +49,42 @@ func NewServer(engine *game.Engine) *Server {
 
 // Listen starts the HTTP server.
 func (s *Server) Listen(addr string) error {
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           s.routes(),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 16,
+	}
+
+	s.srvMu.Lock()
+	s.srv = srv
+	s.srvMu.Unlock()
+	defer func() {
+		s.srvMu.Lock()
+		s.srv = nil
+		s.srvMu.Unlock()
+	}()
+
 	log.Printf("HTTP listening on %s", addr)
-	return http.ListenAndServe(addr, s.routes())
+	err := srv.ListenAndServe()
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
+}
+
+// Close attempts a graceful shutdown of the HTTP server.
+func (s *Server) Close(ctx context.Context) error {
+	s.srvMu.Lock()
+	srv := s.srv
+	s.srvMu.Unlock()
+	if srv == nil {
+		return nil
+	}
+	return srv.Shutdown(ctx)
 }
 
 // routes configures the ServeMux with UI, JSON APIs, static files.
@@ -67,6 +112,7 @@ func (s *Server) routes() http.Handler {
 // ---- UI ----
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
+	applyHTMLSecurityHeaders(w.Header())
 	// Build initial payload embedding current engine state and option lists.
 	s.engineMu.Lock()
 	state := s.engine.State()
@@ -95,7 +141,11 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) withJSON(h func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		applyAPISecurityHeaders(w.Header())
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		if r.Body != nil && r.Body != http.NoBody {
+			r.Body = http.MaxBytesReader(w, r.Body, maxJSONBodyBytes)
+		}
 		h(w, r)
 	}
 }
@@ -117,6 +167,23 @@ func mustJSON(v any) template.JS {
 		panic(err)
 	}
 	return template.JS(b)
+}
+
+func applyHTMLSecurityHeaders(h http.Header) {
+	h.Set("Content-Security-Policy", htmlCSP)
+	h.Set("Cross-Origin-Opener-Policy", "same-origin")
+	h.Set("Cross-Origin-Embedder-Policy", "require-corp")
+}
+
+func applyAPISecurityHeaders(h http.Header) {
+	h.Set("Content-Security-Policy", apiCSP)
+	h.Set("Cross-Origin-Opener-Policy", "same-origin")
+	h.Set("Cross-Origin-Embedder-Policy", "require-corp")
+}
+
+func isBodyTooLarge(err error) bool {
+	var maxErr *http.MaxBytesError
+	return errors.As(err, &maxErr)
 }
 
 // ---- API: state ----
@@ -146,8 +213,13 @@ func (s *Server) handleMove(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+	defer r.Body.Close()
 	var body moveBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if isBodyTooLarge(err) {
+			writeError(w, http.StatusRequestEntityTooLarge, "request too large")
+			return
+		}
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
@@ -199,8 +271,13 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+	defer r.Body.Close()
 	var body configBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if isBodyTooLarge(err) {
+			writeError(w, http.StatusRequestEntityTooLarge, "request too large")
+			return
+		}
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
@@ -238,6 +315,9 @@ func (s *Server) handleReset(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
+	}
+	if r.Body != nil {
+		r.Body.Close()
 	}
 	s.engineMu.Lock()
 	err := s.engine.Reset()
