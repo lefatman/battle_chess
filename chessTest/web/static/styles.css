@@ -1,3 +1,5 @@
+/* path: chessTest/web/static/styles.css */
+
 :root {
   /* Pokemon-inspired base colors */
   --royal-blue: #2563eb;
@@ -136,6 +138,142 @@ body::before {
   box-shadow: var(--shadow-xl);
   position: relative;
   background: linear-gradient(45deg, #64748b 0%, #94a3b8 100%);
+}
+
+.block-dir-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.82);
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease-in-out;
+  z-index: 10;
+}
+
+.block-dir-overlay[hidden] {
+  display: none !important;
+}
+
+.block-dir-overlay.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.block-dir-panel {
+  background: linear-gradient(145deg, rgba(30, 41, 59, 0.92), rgba(51, 65, 85, 0.92));
+  border: 2px solid var(--accent);
+  border-radius: 16px;
+  padding: 16px 20px;
+  box-shadow: var(--shadow-xl);
+  display: grid;
+  gap: 14px;
+  min-width: clamp(220px, 40vw, 320px);
+}
+
+.block-dir-panel h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  text-align: center;
+}
+
+.block-dir-instructions {
+  margin: 0;
+  font-size: 0.95rem;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.block-dir-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(52px, 1fr));
+  grid-template-rows: repeat(3, minmax(52px, 1fr));
+  gap: 12px;
+  justify-items: center;
+  align-items: center;
+}
+
+.block-dir-cone[data-dir="N"] { grid-column: 2; grid-row: 1; }
+.block-dir-cone[data-dir="NE"] { grid-column: 3; grid-row: 1; }
+.block-dir-cone[data-dir="E"] { grid-column: 3; grid-row: 2; }
+.block-dir-cone[data-dir="SE"] { grid-column: 3; grid-row: 3; }
+.block-dir-cone[data-dir="S"] { grid-column: 2; grid-row: 3; }
+.block-dir-cone[data-dir="SW"] { grid-column: 1; grid-row: 3; }
+.block-dir-cone[data-dir="W"] { grid-column: 1; grid-row: 2; }
+.block-dir-cone[data-dir="NW"] { grid-column: 1; grid-row: 1; }
+
+.block-dir-grid::after {
+  content: '';
+  grid-column: 2;
+  grid-row: 2;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: radial-gradient(circle at center, rgba(248, 250, 252, 0.35) 0%, rgba(148, 163, 184, 0.15) 60%, transparent 100%);
+  pointer-events: none;
+}
+
+.block-dir-cone {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: transparent;
+}
+
+.block-dir-cone::after {
+  content: '';
+  position: absolute;
+  inset: 12%;
+  background: linear-gradient(145deg, rgba(248, 250, 252, 0.8), rgba(148, 163, 184, 0.75));
+  clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+  transition: transform 160ms ease, background 160ms ease, box-shadow 160ms ease;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.45);
+}
+
+.block-dir-cone[data-dir="N"]::after { transform: rotate(0deg); }
+.block-dir-cone[data-dir="NE"]::after { transform: rotate(45deg); }
+.block-dir-cone[data-dir="E"]::after { transform: rotate(90deg); }
+.block-dir-cone[data-dir="SE"]::after { transform: rotate(135deg); }
+.block-dir-cone[data-dir="S"]::after { transform: rotate(180deg); }
+.block-dir-cone[data-dir="SW"]::after { transform: rotate(225deg); }
+.block-dir-cone[data-dir="W"]::after { transform: rotate(270deg); }
+.block-dir-cone[data-dir="NW"]::after { transform: rotate(315deg); }
+
+.block-dir-cone:hover::after,
+.block-dir-cone:focus-visible::after,
+.block-dir-cone.is-selected::after {
+  background: linear-gradient(145deg, var(--accent), var(--emerald));
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.35), 0 8px 18px rgba(15, 23, 42, 0.55);
+}
+
+.block-dir-cone:focus-visible {
+  outline: none;
+}
+
+.block-dir-cancel {
+  justify-self: center;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  background: rgba(30, 41, 59, 0.85);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 160ms ease, color 160ms ease, border 160ms ease;
+}
+
+.block-dir-cancel:hover,
+.block-dir-cancel:focus-visible {
+  border-color: var(--accent);
+  background: rgba(248, 113, 113, 0.25);
+  color: var(--accent);
 }
 
 .board::before {

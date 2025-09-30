@@ -1334,6 +1334,36 @@ func TestBlockPathFacingBlocksAdjacentDirections(t *testing.T) {
 	}
 }
 
+func TestBlockPathMoveRequiresDirectionEachTime(t *testing.T) {
+	eng := NewEngine()
+	if err := eng.SetSideConfig(White, AbilityList{AbilityBlockPath}, ElementLight); err != nil {
+		t.Fatalf("configure white: %v", err)
+	}
+	if err := eng.SetSideConfig(Black, AbilityList{AbilityDoOver}, ElementShadow); err != nil {
+		t.Fatalf("configure black: %v", err)
+	}
+
+	clearBoard(eng)
+	eng.board.turn = White
+
+	from := mustSquare(t, "e4")
+	to := mustSquare(t, "e5")
+	next := mustSquare(t, "e6")
+
+	eng.placePiece(White, Rook, from)
+
+	if err := eng.Move(MoveRequest{From: from, To: to, Dir: DirN}); err != nil {
+		t.Fatalf("initial block path move: %v", err)
+	}
+
+	eng.board.turn = White
+
+	err := eng.Move(MoveRequest{From: to, To: next, Dir: DirNone})
+	if !errors.Is(err, ErrBlockPathDirectionRequired) {
+		t.Fatalf("expected ErrBlockPathDirectionRequired, got %v", err)
+	}
+}
+
 func removePieceAt(eng *Engine, coord string) error {
 	sq, ok := CoordToSquare(coord)
 	if !ok {

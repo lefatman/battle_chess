@@ -27,13 +27,13 @@
   const noteLabel = document.getElementById("noteLabel");
   const selectedLabel = document.getElementById("selectedSquare");
   const hoverLabel = document.getElementById("hoverSquare");
-  const dirSelect = document.getElementById("dirSelect");
   const moveForm = document.getElementById("moveForm");
   const moveError = document.getElementById("moveError");
   const blockSummary = document.getElementById("blockSummary");
   const resetBtn = document.getElementById("resetBtn");
   const configForms = document.querySelectorAll(".config-form");
   const configMessage = document.getElementById("configMessage");
+  const blockDirOverlay = document.getElementById("blockDirOverlay");
 
   // New UI hooks (index.html update)
   const abilityAnnounce = document.getElementById("abilityAnnounce");
@@ -45,6 +45,9 @@
 
   // Directions (engine uses 0..7)
   const DIRS = ["N","NE","E","SE","S","SW","W","NW"];
+
+  let pendingMove = null;
+  let pendingBlockDir = "";
 
   // ===== Tiny SFX =====
   const sounds = {
@@ -71,19 +74,6 @@
   }
 
   // ===== Rendering =====
-  function renderDirOptions() {
-    dirSelect.innerHTML = "";
-    const ph = document.createElement("option");
-    ph.value = ""; ph.textContent = "Auto / Not needed";
-    dirSelect.appendChild(ph);
-    DIRS.forEach((d) => {
-      const opt = document.createElement("option");
-      opt.value = d;
-      opt.textContent = d;
-      dirSelect.appendChild(opt);
-    });
-  }
-
   function createPieceElement(piece) {
     // Unicode set + element badge via CSS class
     const colorName = String(piece.colorName || piece.color || "").toLowerCase();
@@ -133,6 +123,7 @@
   }
 
   function renderBoard() {
+    const overlayEl = blockDirOverlay;
     boardEl.innerHTML = "";
     for (let rank = 7; rank >= 0; rank--) {
       for (let file = 0; file < 8; file++) {
@@ -168,6 +159,9 @@
         boardEl.appendChild(sq);
       }
     }
+    if (overlayEl) {
+      boardEl.appendChild(overlayEl);
+    }
     // Labels
     if (turnLabel) turnLabel.textContent = state.turnName ? capitalize(state.turnName) : getTurnName(state.turn);
     if (noteLabel) noteLabel.textContent = state.note || state.lastNote || "Ready";
@@ -197,14 +191,140 @@
       const toAlg = sqToAlg(sqIndex);
       // If BlockPath required, ensure a direction chosen
       const movingPiece = state.pieces.find(p => p.square === selectedSquare);
-      if (movingPiece && needsBlockPathDirection(movingPiece) && !dirSelect.value) {
-        showMoveError("🛡️ BlockPath direction required.");
-        sounds.error();
+      if (movingPiece && needsBlockPathDirection(movingPiece)) {
+        prepareBlockDirSelection(movingPiece, selectedSquare, sqIndex);
         return;
       }
-      submitMove(fromAlg, toAlg, dirSelect.value || "");
+      submitMove(fromAlg, toAlg, "");
     }
     renderBoard();
+  }
+
+  function prepareBlockDirSelection(piece, fromSqIndex, toSqIndex) {
+    if (!blockDirOverlay) {
+      showMoveError("🛡️ Direction selector unavailable.");
+      sounds.error();
+      return;
+    }
+    pendingMove = { from: sqToAlg(fromSqIndex), to: sqToAlg(toSqIndex) };
+    pendingBlockDir = "";
+    possibleMoves = [];
+    renderBoard();
+    showBlockDirOverlay(piece, fromSqIndex, toSqIndex);
+  }
+
+  function showBlockDirOverlay(piece, fromSqIndex, toSqIndex) {
+    if (!blockDirOverlay) return;
+    blockDirOverlay.innerHTML = "";
+    blockDirOverlay.hidden = false;
+    blockDirOverlay.setAttribute("aria-hidden", "false");
+    blockDirOverlay.classList.add("active");
+    blockDirOverlay.tabIndex = -1;
+
+    const headingId = "blockDirOverlayHeading";
+    const infoId = "blockDirOverlayInfo";
+    blockDirOverlay.setAttribute("aria-labelledby", headingId);
+    blockDirOverlay.setAttribute("aria-describedby", infoId);
+
+    const panel = document.createElement("div");
+    panel.className = "block-dir-panel";
+
+    const heading = document.createElement("h3");
+    heading.id = headingId;
+    heading.textContent = "Choose Block Path facing";
+    panel.appendChild(heading);
+
+    const pieceColor = piece ? (piece.colorName ? capitalize(piece.colorName) : (piece.color === 0 ? "White" : "Black")) : "";
+    const pieceType = piece ? getPieceTypeName(piece.typeName || piece.type) : "";
+    const info = document.createElement("p");
+    info.id = infoId;
+    info.className = "block-dir-instructions";
+    info.textContent = `${pieceColor} ${pieceType} ${sqToAlg(fromSqIndex)} → ${sqToAlg(toSqIndex)}`.trim();
+    panel.appendChild(info);
+
+    const grid = document.createElement("div");
+    grid.className = "block-dir-grid";
+    DIRS.forEach((dir) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "block-dir-cone";
+      button.dataset.dir = dir;
+      const full = dirToFullName(dir);
+      button.setAttribute("aria-label", `Face ${full}`);
+      button.title = `Face ${full}`;
+      button.textContent = dir;
+      grid.appendChild(button);
+    });
+    panel.appendChild(grid);
+
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "block-dir-cancel";
+    cancel.dataset.action = "cancel";
+    cancel.textContent = "Cancel";
+    panel.appendChild(cancel);
+
+    blockDirOverlay.appendChild(panel);
+    const focusOverlay = () => {
+      if (blockDirOverlay && !blockDirOverlay.hidden) {
+        blockDirOverlay.focus({ preventScroll: true });
+      }
+    };
+    if (typeof queueMicrotask === "function") {
+      queueMicrotask(focusOverlay);
+    } else {
+      Promise.resolve().then(focusOverlay);
+    }
+  }
+
+  function clearBlockDirOverlay() {
+    if (!blockDirOverlay) return;
+    blockDirOverlay.innerHTML = "";
+    blockDirOverlay.hidden = true;
+    blockDirOverlay.setAttribute("aria-hidden", "true");
+    blockDirOverlay.classList.remove("active");
+    blockDirOverlay.removeAttribute("aria-labelledby");
+    blockDirOverlay.removeAttribute("aria-describedby");
+  }
+
+  function submitPendingBlockDir(dir) {
+    if (!pendingMove) return;
+    pendingBlockDir = dir;
+    const { from, to } = pendingMove;
+    pendingMove = null;
+    possibleMoves = [];
+    submitMove(from, to, dir);
+  }
+
+  function cancelBlockDirSelection() {
+    clearBlockDirOverlay();
+    pendingMove = null;
+    pendingBlockDir = "";
+    selectedSquare = null;
+    possibleMoves = [];
+    renderBoard();
+  }
+
+  function onBlockDirOverlayClick(ev) {
+    const target = ev.target instanceof Element ? ev.target : null;
+    if (!target) return;
+    const cancel = target.closest('[data-action="cancel"]');
+    if (cancel) {
+      ev.preventDefault();
+      cancelBlockDirSelection();
+      return;
+    }
+    const dirBtn = target.closest(".block-dir-cone");
+    if (dirBtn && dirBtn.dataset.dir) {
+      ev.preventDefault();
+      const dir = dirBtn.dataset.dir;
+      const buttons = blockDirOverlay ? blockDirOverlay.querySelectorAll(".block-dir-cone") : [];
+      for (const btn of buttons) {
+        btn.classList.remove("is-selected");
+      }
+      dirBtn.classList.add("is-selected");
+      submitPendingBlockDir(dir);
+    }
   }
 
   function updateMoveHints() {
@@ -236,24 +356,26 @@
 
     const from = (ev.target.from.value || "").trim().toLowerCase();
     const to = (ev.target.to.value || "").trim().toLowerCase();
-    const dir = (ev.target.dir.value || "").trim();
-
     const fromSq = algToSq(from);
+    const toSq = algToSq(to);
     const movingPiece = state.pieces.find(p => p.square === fromSq);
-    if (movingPiece && needsBlockPathDirection(movingPiece) && !dir) {
-      showMoveError("🛡️ BlockPath direction required!");
-      sounds.error();
+    if (movingPiece && needsBlockPathDirection(movingPiece) && toSq >= 0) {
+      prepareBlockDirSelection(movingPiece, fromSq, toSq);
       return;
     }
 
-    await submitMove(from, to, dir);
+    await submitMove(from, to, "");
   });
 
   async function submitMove(from, to, dir) {
+    clearBlockDirOverlay();
+    pendingMove = null;
+    pendingBlockDir = "";
     isAnimating = true;
     moveForm.classList.add("loading");
     try {
-      const result = await fetchJSON("/api/move", { from, to, dir });
+      const payloadDir = typeof dir === "string" ? dir.toUpperCase() : String(dir || "");
+      const result = await fetchJSON("/api/move", { from, to, dir: payloadDir });
       // Optional client animation
       await animateMove(algToSq(from), algToSq(to));
       updateState(result);
@@ -272,7 +394,6 @@
       selectedSquare = null;
       possibleMoves = [];
       moveForm.reset();
-      updateMoveForm();
       // Move list
       addMoveToList(from, to, result);
     } catch (err) {
@@ -288,6 +409,9 @@
   resetBtn.addEventListener("click", async () => {
     if (isAnimating) return;
     if (!confirm("🏰 Reset the entire battle? This will clear all progress!")) return;
+    clearBlockDirOverlay();
+    pendingMove = null;
+    pendingBlockDir = "";
     isAnimating = true;
     resetBtn.classList.add("loading");
     try {
@@ -409,44 +533,13 @@
     if (configured) {
       fromInput.disabled = false;
       toInput.disabled = false;
-      dirSelect.disabled = false;
       submitBtn.disabled = false;
       submitBtn.textContent = state.locked ? "⚔️ Execute Move" : "⚔️ Execute Move (locks armies)";
     } else {
       fromInput.disabled = true;
       toInput.disabled = true;
-      dirSelect.disabled = true;
       submitBtn.disabled = true;
       submitBtn.textContent = "Configure both armies to start";
-    }
-    updateMoveForm();
-  }
-
-  function updateMoveForm() {
-    const fromInput = document.getElementById("fromInput");
-    const dirLabel = dirSelect.closest("label");
-    if (fromInput.value) {
-      const fromSq = algToSq(fromInput.value.toLowerCase());
-      const piece = state.pieces.find(p => p.square === fromSq);
-      const needsDir = piece && needsBlockPathDirection(piece);
-      dirSelect.required = !!needsDir;
-      if (dirLabel) {
-        dirLabel.classList.toggle("required", !!needsDir);
-      }
-      if (needsDir) {
-        dirSelect.value = "";
-      } else if (piece) {
-        const facingIndex = state.blockFacing?.[piece.id];
-        if (facingIndex !== undefined) {
-          const facingValue = DIRS[facingIndex];
-          if (facingValue) {
-            dirSelect.value = facingValue;
-          }
-        }
-      }
-    } else {
-      dirSelect.required = false;
-      if (dirLabel) dirLabel.classList.remove("required");
     }
   }
 
@@ -475,6 +568,19 @@
       case "N": return "Knight";
       case "P": return "Pawn";
       default: return String(t);
+    }
+  }
+  function dirToFullName(dir) {
+    switch (String(dir || "").toUpperCase()) {
+      case "N": return "North";
+      case "NE": return "North East";
+      case "E": return "East";
+      case "SE": return "South East";
+      case "S": return "South";
+      case "SW": return "South West";
+      case "W": return "West";
+      case "NW": return "North West";
+      default: return "Unknown";
     }
   }
   function sqToAlg(sq) {
@@ -529,8 +635,7 @@
 
   function needsBlockPathDirection(piece) {
     if (!piece) return false;
-    if (!hasBlockPath(piece)) return false;
-    return state.blockFacing?.[piece.id] === undefined;
+    return hasBlockPath(piece);
   }
 
   function abilityListHasBlockPath(list) {
@@ -672,10 +777,16 @@
 
   function capitalize(s){ return s ? s[0].toUpperCase()+s.slice(1) : s; }
 
-  // Live update of BlockPath requirement when user types "from"
-  document.getElementById("fromInput").addEventListener("input", updateMoveForm);
+  if (blockDirOverlay) {
+    blockDirOverlay.addEventListener("click", onBlockDirOverlayClick);
+  }
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape" && blockDirOverlay && !blockDirOverlay.hidden) {
+      ev.preventDefault();
+      cancelBlockDirSelection();
+    }
+  });
 
-  renderDirOptions();
   populateConfigSelects();
   renderBoard();
   updateConfigUI();
