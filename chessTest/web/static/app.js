@@ -1,3 +1,4 @@
+// path: chessTest/web/static/app.js
 (function () {
   "use strict";
 
@@ -280,7 +281,7 @@
     isAnimating = true;
     resetBtn.classList.add("loading");
     try {
-      const result = await fetchJSON("/api/reset");
+      const result = await fetchJSON("/api/reset", {});
       updateState(result);
       selectedSquare = null;
       possibleMoves = [];
