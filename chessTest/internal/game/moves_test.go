@@ -1295,6 +1295,45 @@ func TestTemporalLockAppliesSlowToNextMover(t *testing.T) {
 	}
 }
 
+func TestBlockPathFacingBlocksAdjacentDirections(t *testing.T) {
+	defenderSq := mustSquare(t, "d4")
+	tests := []struct {
+		name   string
+		facing Direction
+	}{
+		{name: "North", facing: DirN},
+		{name: "NorthEast", facing: DirNE},
+		{name: "East", facing: DirE},
+		{name: "SouthEast", facing: DirSE},
+		{name: "South", facing: DirS},
+		{name: "SouthWest", facing: DirSW},
+		{name: "West", facing: DirW},
+		{name: "NorthWest", facing: DirNW},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			blocked := [...]Direction{rotateDirection(tt.facing, -1), rotateDirection(tt.facing, 1)}
+			for _, dir := range blocked {
+				eng, attackerSq := buildBlockPathScenario(t, tt.facing, dir, defenderSq)
+				err := eng.Move(MoveRequest{From: attackerSq, To: defenderSq, Dir: DirNone})
+				if !errors.Is(err, ErrCaptureBlocked) {
+					t.Fatalf("facing %v attack %v expected capture veto, got %v", tt.facing, dir, err)
+				}
+			}
+
+			orth := [...]Direction{rotateDirection(tt.facing, -2), rotateDirection(tt.facing, 2)}
+			for _, dir := range orth {
+				eng, attackerSq := buildBlockPathScenario(t, tt.facing, dir, defenderSq)
+				if err := eng.Move(MoveRequest{From: attackerSq, To: defenderSq, Dir: DirNone}); err != nil {
+					t.Fatalf("facing %v attack %v expected capture allowed, got %v", tt.facing, dir, err)
+				}
+			}
+		})
+	}
+}
+
 func removePieceAt(eng *Engine, coord string) error {
 	sq, ok := CoordToSquare(coord)
 	if !ok {
@@ -1321,6 +1360,85 @@ func mustSquare(t *testing.T, coord string) Square {
 	sq, ok := CoordToSquare(coord)
 	if !ok {
 		t.Fatalf("invalid coordinate %s", coord)
+	}
+	return sq
+}
+
+func buildBlockPathScenario(t *testing.T, facing, attack Direction, defender Square) (*Engine, Square) {
+	t.Helper()
+
+	eng := NewEngine()
+	if err := eng.SetSideConfig(White, AbilityList{AbilityDoOver}, ElementLight); err != nil {
+		t.Fatalf("configure white: %v", err)
+	}
+	if err := eng.SetSideConfig(Black, AbilityList{AbilityBlockPath}, ElementShadow); err != nil {
+		t.Fatalf("configure black: %v", err)
+	}
+
+	clearBoard(eng)
+	eng.board.turn = White
+
+	eng.placePiece(Black, Rook, defender)
+	defenderPiece := eng.board.pieceAt[defender]
+	if defenderPiece == nil {
+		t.Fatalf("expected defender at %s", defender)
+	}
+	defenderPiece.BlockDir = facing
+	eng.blockFacing[defenderPiece.ID] = facing
+
+	attackerSq := squareForDirection(t, defender, attack)
+	eng.placePiece(White, Queen, attackerSq)
+	return eng, attackerSq
+}
+
+func rotateDirection(dir Direction, delta int) Direction {
+	if dir == DirNone {
+		return DirNone
+	}
+	delta %= 8
+	if delta < 0 {
+		delta += 8
+	}
+	idx := int(dir)
+	idx = (idx + delta) % 8
+	return Direction(idx)
+}
+
+func directionDelta(dir Direction) (int, int, bool) {
+	switch dir {
+	case DirN:
+		return -1, 0, true
+	case DirNE:
+		return -1, 1, true
+	case DirE:
+		return 0, 1, true
+	case DirSE:
+		return 1, 1, true
+	case DirS:
+		return 1, 0, true
+	case DirSW:
+		return 1, -1, true
+	case DirW:
+		return 0, -1, true
+	case DirNW:
+		return -1, -1, true
+	default:
+		return 0, 0, false
+	}
+}
+
+func squareForDirection(t *testing.T, target Square, dir Direction) Square {
+	t.Helper()
+
+	dr, df, ok := directionDelta(dir)
+	if !ok {
+		t.Fatalf("no delta for direction %v", dir)
+	}
+	rank := target.Rank() - dr
+	file := target.File() - df
+	sq, valid := SquareFromCoords(rank, file)
+	if !valid {
+		t.Fatalf("direction %v from %s leaves board", dir, target)
 	}
 	return sq
 }
