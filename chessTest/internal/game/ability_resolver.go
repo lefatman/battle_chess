@@ -178,8 +178,32 @@ func (e *Engine) captureBlockedByBlockPath(attacker *Piece, from Square, defende
 		return false, ""
 	}
 	dir := DirectionOf(from, to)
-	if dir == defender.BlockDir {
+	left, right := blockPathAdjacentDirs(defender.BlockDir)
+	if dir == defender.BlockDir || dir == left || dir == right {
 		return true, fmt.Sprintf("Capture blocked by BlockPath (%s)", defender.BlockDir)
 	}
 	return false, ""
+}
+
+func blockPathAdjacentDirs(dir Direction) (Direction, Direction) {
+	switch dir {
+	case DirN:
+		return DirNW, DirNE
+	case DirNE:
+		return DirN, DirE
+	case DirE:
+		return DirNE, DirSE
+	case DirSE:
+		return DirE, DirS
+	case DirS:
+		return DirSE, DirSW
+	case DirSW:
+		return DirS, DirW
+	case DirW:
+		return DirSW, DirNW
+	case DirNW:
+		return DirW, DirN
+	default:
+		return DirNone, DirNone
+	}
 }
