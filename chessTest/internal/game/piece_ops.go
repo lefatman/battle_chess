@@ -193,16 +193,6 @@ func (e *Engine) removePiece(pc *Piece, sq Square) {
 	delete(e.pendingDoOver, pc.ID)
 }
 
-func (e *Engine) isPathClear(from, to Square) bool {
-	line := Line(from, to)
-	for _, sq := range line {
-		if e.board.pieceAt[sq] != nil {
-			return false
-		}
-	}
-	return true
-}
-
 func (e *Engine) canPhaseThrough(pc *Piece, from Square, to Square) bool {
 	if pc == nil {
 		return false
