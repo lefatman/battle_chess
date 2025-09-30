@@ -876,6 +876,35 @@ func TestQuantumKillRemoteRemovalHonorsRank(t *testing.T) {
 	}
 }
 
+func TestDoubleKillExtraRemovalIgnoresEarthAlignment(t *testing.T) {
+	eng := NewEngine()
+	if err := eng.SetSideConfig(White, AbilityList{AbilityDoubleKill}, ElementLight); err != nil {
+		t.Fatalf("configure white: %v", err)
+	}
+	if err := eng.SetSideConfig(Black, AbilityList{AbilityStalwart}, ElementEarth); err != nil {
+		t.Fatalf("configure black: %v", err)
+	}
+
+	clearBoard(eng)
+
+	attackerSq := mustSquare(t, "e4")
+	victimSq := mustSquare(t, "e5")
+	extraSq := mustSquare(t, "e6")
+
+	eng.placePiece(White, Queen, attackerSq)
+	eng.placePiece(Black, Rook, victimSq)
+	eng.placePiece(Black, Pawn, extraSq)
+	eng.board.turn = White
+
+	if err := eng.Move(MoveRequest{From: attackerSq, To: victimSq, Dir: DirNone}); err != nil {
+		t.Fatalf("double kill capture: %v", err)
+	}
+
+	if eng.board.pieceAt[extraSq] != nil {
+		t.Fatalf("expected extra removal at %s to succeed", extraSq)
+	}
+}
+
 func TestScatterShotAllowsSideCapture(t *testing.T) {
 	eng := NewEngine()
 	if err := eng.SetSideConfig(White, AbilityList{AbilityScatterShot}, ElementAir); err != nil {

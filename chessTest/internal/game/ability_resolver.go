@@ -44,7 +44,7 @@ func (e *Engine) trySmartExtraCapture(attacker *Piece, captureSquare Square, vic
 		if !e.canAbilityRemove(attacker, p) {
 			continue
 		}
-		if elementOf(e, p) == ElementEarth || p.HasAbility(AbilityObstinant) || e.sideHasAbility(p.Color, AbilityObstinant) {
+		if p.HasAbility(AbilityObstinant) || e.sideHasAbility(p.Color, AbilityObstinant) {
 			continue
 		}
 		r := rankOf(p.Type)
