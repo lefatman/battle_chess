@@ -380,9 +380,7 @@ func (e *Engine) requireBlockPathDirection(pc *Piece, dir Direction) error {
 		return nil
 	}
 	if dir == DirNone {
-		if _, ok := e.blockFacing[pc.ID]; !ok {
-			return ErrBlockPathDirectionRequired
-		}
+		return ErrBlockPathDirectionRequired
 	}
 	return nil
 }

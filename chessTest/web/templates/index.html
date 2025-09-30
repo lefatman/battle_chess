@@ -1,3 +1,4 @@
+{{/* path: chessTest/web/templates/index.html */}}
 {{define "index"}}
 <!DOCTYPE html>
 <html lang="en">
@@ -39,7 +40,9 @@
     <section class="board-panel" aria-labelledby="board-title">
       <h2 id="board-title" class="visually-hidden">Battle Arena</h2>
 
-      <div id="board" class="board" aria-label="Battle Chess Arena" role="grid" tabindex="0"></div>
+      <div id="board" class="board" aria-label="Battle Chess Arena" role="grid" tabindex="0">
+        <div id="blockDirOverlay" class="block-dir-overlay" hidden aria-hidden="true" aria-label="Select Block Path direction" role="dialog"></div>
+      </div>
 
       <div class="info-line" role="status">
         <span>🎯 Selected: <span id="selectedSquare">—</span></span>
@@ -61,10 +64,6 @@
             <span id="to-help" class="hint">Target destination</span>
           </label>
 
-          <label for="dirSelect">🛡️ Shield Direction
-            <select id="dirSelect" name="dir" aria-describedby="dir-help"></select>
-            <span id="dir-help" class="hint">Required only if moving a BlockPath piece</span>
-          </label>
         </div>
 
         <div class="form-row">
