@@ -1,197 +1,231 @@
-all elemental and piece attribute abilities are slot in before each match
+the elemental type and piece attribute abilities are slotted **before** each match.
+
 # Global rules used by all abilities
 
 * **Ranks:** King=5, Queen=4, Rook/Bishop=3, Knight=2, Pawn=1.
-* **Step budget:** a piece normally gets **1 segment** (a standard chess move). Some abilities add **steps**; each **step** buys one extra segment that can be:
-
-  * a direction change and continued sliding (Q/R/B),
-  * an extra Knight jump,
-  * a 1-square “nudge” (if granted),
-  * or continuing a capture chain (only if you have a multi-capture ability).
-* **Phasing (when granted):** you may **move through** occupied enemy squares while sliding, but you must still **end** on an empty square or a square you capture normally.
+* **Phasing (when granted):** You may move *through* occupied enemy squares while sliding. You must still **end** on an empty square or on a square you capture by normal rules.
+* **Elemental abilities:** Picking an element equips **all** abilities for that element on **all** of your pieces.
 
 ---
 
 # Element abilities
 
-(Registered in code: Scorch, Blaze Rush, Flood Wake, Mist Shroud, Bastion, Gale Lift, Tailwind, Scatter Shot, Overload, Radiant Vision, Umbral Step. )
+(Registered: **Scorch, Blaze Rush, Flood Wake, Mist Shroud, Bastion, Sturdy, Gale Lift, Tailwind, Scatter Shot, Overload, Raijin, Radiant Vision, Umbral Step**.)
 
-### Scorch (Fire) 
+### Scorch (Fire)
 
-**Effect:** +1 step. If the same piece also has **Flood Wake**, it loses 1 of these bonus steps (net 0 if only from Scorch).
-**How it plays:** You can add one extra segment to your move: e.g., slide then pivot; or Knight can jump a second time.
+**Effect:** Any square you **leave** becomes impassable to **lower-rank enemy** pieces for **3 full turns**. Water pieces ignore Scorch.
+**How it plays:** Create temporary firewalls to shape lanes and protect retreats.
 
-### Blaze Rush (Fire) 
+### Blaze Rush (Fire)
 
-**Effect (discrete):** Once per turn, **after** completing a non-capturing slide with a slider (Q/R/B), you may **continue in the same straight line up to 2 more squares** if the path is clear (no turns). For K/N/P, instead **gain +1 step**.
-**How it plays:** Rook runs farther in one line; Knights/Pawns get an extra segment.
+**Effect:** After a **primary capture**, you may resolve **one extra DK *or* one extra QK** (your choice). Versus **Earth**, you may resolve **both** once each if legal.
+**How it plays:** Deterministic burst. Extend a takedown chain; strongest against Earth.
 
-### Flood Wake (Water) 
+### Flood Wake (Water)
 
-**Effect:** **Phasing is OFF** for this piece’s movement (no ghosting). If the piece’s own element is Water, it also gains **one extra straight, non-capturing 1-square push** it can append before or after its move.
-**How it plays:** More “grounded” movement; Water affinity buys a tidy 1-square free advance.
+**Effect:** When **Do-Over** rewinds, any **enemy pieces your side captured in the rewound 2 plies stay removed**. All other board state rewinds normally.
+**How it plays:** Rewind without giving back your recent kills.
 
-### Mist Shroud (Water) 
+### Mist Shroud (Water)
 
-**Effect (discrete):** Once per turn, **one free mid-slide turn** (a 90° pivot) **without spending a step**; additional turns still cost steps.
-**How it plays:** A Bishop can turn a corner once for free; after that, further pivots consume steps.
+**Effect (discrete):** All your pieces also gain **Quantum Step** (QS) in addition to their chosen movement augmentor.
+**How it plays:** Universal post-move blink/swap across your army.
 
-### Bastion (Earth) 
+### Bastion (Earth)
 
-**Effect:** If you capture, your move **ends immediately** (“stop after hit”). If the same piece also has **Blaze Rush**, you’re allowed the Blaze dash **before** the hit; the hit still ends the turn.
-**How it plays:** Earthy, anchor-style: you hit and stop.
+**Effect:** If you have **Block Piece**, its shield is a **180° cone**. When an enemy capture is **blocked** by **Bastion/Stalwart/Belligerent**, that attacker is **knocked back 1–3 empty squares** in a random outward direction. **Air** pieces ignore knockback.
+**How it plays:** Wide frontal denial; failed assaults rebound.
 
-### Gale Lift (Air) 
+### Sturdy (Earth)
 
-**Effect:** **Phasing ON** while moving. If the piece also has **Bastion**, Bastion suppresses phasing (Bastion wins).
-**How it plays:** Slide through screens and capture or pass beyond (still end on legal squares only).
+**Effect:** If a piece has **no defensive augmentor** (Stalwart/Belligerent/Indomitable), its **first would-be capture is ignored**. Consume Sturdy on use.
+**How it plays:** One free survive for naked units.
 
-### Tailwind (Air) 
+### Gale Lift (Air)
 
-**Effect:** **+2 steps.** If the same piece has **Temporal Lock**, it loses 1 of those steps (net +1).
-**How it plays:** Big chaining potential.
+**Effect:** **Phasing ON** while moving. If the same piece also has **Bastion**, **Bastion suppresses phasing** for that move.
+**How it plays:** Slide through screens; Bastion takes precedence when present.
 
-### Scatter Shot (Air) 
+### Tailwind (Air)
 
-**Effect:** Gain two **extra capture directions**: **one square left** and **one square right** (horizontal) as capture-only options (usable once per segment that ends in capture). If you also have **Chain Kill**, gain **+1 step**.
-**How it plays:** Any piece may take a side swipe capture at ±1 file when adjacent.
+**Effect:** **+2 move segments/steps** to your move budget. If the piece has **Quantum Step**, it also gains **Chain Kill**; if it has **Chain Kill**, it also gains **Quantum Step**.
+**How it plays:** Longer routes and built-in CK↔QS synergy.
 
-### Overload (Lightning) 
+### Scatter Shot (Air)
 
-**Effect:** On any capture, **end the move immediately** (stop after hit). If the same piece has **Stalwart**, it **loses 1 step** this turn.
-**How it plays:** Hit hard, stop there.
+**Effect:** **Pawns** may capture **horizontally by 1** when adjacent.
+**How it plays:** Edge guards and file breaks for pawns.
 
-### Radiant Vision (Light) 
+### Overload (Lightning)
 
-**Effect:** **+1 step**, and **+1 more** if the piece also has **Mist Shroud**.
-**How it plays:** Bright mobility; pairs nicely with Mist’s free corner.
+**Effect:** Ability loadouts are chosen **per-piece** instead of army-wide during pre-match slotting.
+**How it plays:** Fine-grained builds; each unit can differ.
 
-### Umbral Step (Shadow) 
+### Raijin (Lightning)
 
-**Effect:** **+2 steps** and you may **move/capture backward** along your legal vectors. If combined with **Radiant Vision**, lose 1 of those steps (net +1).
-**How it plays:** Reposition out of danger; even Pawns can go back 1 (and capture backward if a vector grants it).
+**Effect:** Your **QK ignores Indomitable**. If the piece has **Quantum Step**, after QS you may perform **one additional legal capture** from the new square (DK/QK eligibility still follows normal limits).
+**How it plays:** Lightning strikes through immunity; QS can convert into a follow-up kill.
+
+### Radiant Vision (Light)
+
+**Effect:** **Counters Mist Shroud** against you: enemy QS still works, but **you always see legal lines**; no concealment. Your sliders **evaluate threats through the first blocker for check/threat purposes** (capture still needs a clear path).
+**How it plays:** Perfect information for targeting; anti-fog.
+
+### Blinding (Light)
+
+**Effect:** If **Do-Over** triggers for your side, **you take the next turn immediately** after the rewind.
+**How it plays:** Tempo steal on time resets.
+
+### Light Speed (Light)
+
+**Effect:** **Element effects resolve before non-element abilities** on your moves and on defense.
+**How it plays:** Priority bump for Light users in the resolver.
+
+### Anarchist Streak (Shadow)
+
+**Effect:** **Ignore all rank checks** in abilities (DK/QK/Stalwart/Belligerent/Scorch gating, etc.). Other conditions still apply.
+**How it plays:** Power cuts through rank limits; cones and immunities still matter.
+
+### Sadist Streak (Shadow)
+
+**Effect:** **Poisonous Meat** becomes **delayed**. If your poisoned unit is captured, mark the captor. After **2 of that opponent’s turns**, remove the **marked captor** **and** any **enemy pieces it directly contacted** during the delay. If the capture was by **QK or DK**, delay is **3 turns** and only the **marked captor** is removed. If the marked piece dies earlier, the mark fizzles.
+**How it plays:** Time-bomb reprisals that punish overextension.
+
+
 
 ---
 
 # Movement augmentors
 
-(IDs & registration show Side Step, Block Piece, Quantum Step, Stalwart, Belligerent, Idomitable.  )
+(IDs: **Side Step, Block Piece, Quantum Step, Stalwart, Belligerent, Indomitable**.)
 
-### Side Step  
+### Side Step
 
-**Effect:** Grants a set of **8 one-square offsets** (N, S, E, W, and diagonals) you can apply **once at the end** of your move; this **costs 1 step** from your budget.
-**How it plays:** Land, then “nudge” one square to finish.
+**Effect:** Grants **8 one-square offsets** usable **once at the end** of a move; costs **1 step** from your budget.
+**How it plays:** Land, then “nudge” one square.
 
-### Block Piece (a.k.a. Block Path) 
+### Block Piece (a.k.a. Block Path)
 
-**Effect (discrete, two parts):**
+**Effect (discrete):** **Directional shield.** Until the opponent finishes their next turn, **captures that *originate* from inside your chosen cone are illegal**. Default **90°**; **180° with Bastion**.
+**How it plays:** Persistent facing shield; on your next move you re-select or keep the facing.
 
-1. **Facing phasing:** At move start choose a facing (N/S/E/W/NE/NW/SE/SW). While moving **in that facing**, you may **pass through one enemy** piece (exactly one screen).
-2. **Directional shield:** Until the opponent finishes their next turn, **captures against this piece that originate from inside a 90° cone centered on that facing are illegal**.
-   **How it plays:** Offensive spear in one direction + defensive shield for a turn. (Bastion cancels the phasing part.) 
+### Quantum Step
 
-### Quantum Step 
+**Effect (discrete):** **Once per turn after your move/capture resolves**, either **swap** with an adjacent **friendly of lower rank** or **blink** into an adjacent **empty** square.
+**How it plays:** Post-move reposition. No inherent remove.
 
-**Effect (discrete):** **Once per turn after your move/capture resolves**, spend **1 step** to either **swap places with an adjacent friendly** or **blink into an adjacent empty square**.
-**How it plays:** Tight post-move relocation; does not create or skip captures by itself.
+### Stalwart
 
-### Stalwart 
+**Effect (defensive):** **Lower-rank pieces cannot capture** this piece. **No phasing through** this piece.
+**How it plays:** Immune to pick-offs by weaker units.
 
-**Effect (discrete, defensive):** A piece of **lower rank cannot capture** this piece **unless** at least **one other enemy** is also attacking the Stalwart’s square (i.e., needs support). Also, **no phasing through** this piece.
-**How it plays:** You can’t be picked off solo by weaker units; they need backup.
+### Belligerent
 
-### Belligerent 
+**Effect (defensive):** **Higher-rank pieces cannot capture** this piece. **No phasing through** this piece.
+**How it plays:** Only equal or weaker units can take you.
 
-**Effect:** **Backward movement allowed** using your normal vectors; plus **one Knight-style 2×1 jump** per turn (move or capture), which costs **1 step**.
-**How it plays:** Aggressive chase tools and retreat options.
+### Indomitable (spelled “Idomitable” in code)
 
-### Indomitable (spelled “Idomitable” in code) 
-
-**Effect:** **Immune to ability-based removals** (e.g., Double Kill extra, Quantum Kill, their echoes). Still capturable by **normal** chess capture. Also **cannot be phased through**.
-**How it plays:** Only direct captures work; all “bonus remove” effects fail.
+**Effect:** **Immune to ability-based removals** (DK extra, QK, PM, delayed PM). Still capturable by **normal** chess capture. **Cannot be phased through**.
+**How it plays:** Only direct capture works; bonus removals fail.
 
 ---
 
 # Offense abilities
 
-(Defined & registered: Double Kill, Quantum Kill, Chain Kill, Poisonous Meat.  )
+(Registered: **Double Kill, Quantum Kill, Chain Kill, Poisonous Meat**.)
 
-### Double Kill (DK) 
+### Double Kill (DK)
 
-**Trigger:** After you make a **primary capture**.
-**Effect (discrete):** Remove **one enemy adjacent** (8-neighbors) to the **captured square** whose **rank is lower than the primary victim’s**. **Cannot** remove a **King** or **Indomitable**.
-**How it plays:** Take a piece, then pop a weaker neighbor of that victim.
+**Trigger:** After your **primary capture**.
+**Effect (discrete):** Remove **one enemy adjacent** to the **captured square** with **rank ≤ victim’s rank**. Cannot remove **King** or **Indomitable**.
+**How it plays:** Pop a nearby straggler after a take.
 
 ### Quantum Kill (QK) — redefined per your spec
 
-**Trigger:** After your **primary capture** (once per your turn).
-**Effect (discrete):** Remove **one enemy anywhere on the board** with **rank ≤ the primary victim’s rank** (not a King, not Indomitable). Then, if there is an **adjacent enemy** to that remote target with **lower rank**, remove it too (**echo**).
-**How it plays:** Snipe an equal/lower-rank piece anywhere; possibly chain-remove its weaker neighbor. (This stacks with DK for up to **four removals** in total when nothing cancels.)
+**Trigger:** After your **primary capture** (once per turn).
+**Effect (discrete):** Remove **one enemy anywhere** with **rank ≤ victim’s rank** (not King, not Indomitable; but see **Raijin**).
+**How it plays:** Board-wide snipe at equal/lower rank.
 
-### Chain Kill 
+### Chain Kill (CK) — redefined per your spec
 
-**Effect (discrete):** You may perform up to **2 additional captures** **in this move** by moving legally between them (spending steps as needed). You can’t capture the same unit twice (obviously) and must end each capture on a legal square.
-**How it plays:** Actual multi-square capture chains (not just DK/QK removals).
+**Trigger:** When you declare a **capture** with this piece.
+**Effect (discrete):** Traverse a contiguous chain of **adjacent friendlies** (8-neighbors). Treat the **last friendly** as a **virtual origin**, then perform **one** legal capture using this piece’s normal rules from that origin. Chain may turn; no gaps; no enemies in chain; no captures along the chain. If no legal capture exists from the virtual origin, the move is illegal. King safety still applies.
+**How it plays:** Hop link-to-link over allies to angle a single capture.
 
-### Poisonous Meat 
+### Poisonous Meat (PM)
 
-**Effect:** On any capture, **your turn ends immediately** and you **lose 1 step** from your current budget (if any remained). Shadow affinity (Umbral theme) refunds that step per code.
-**How it plays:** You’re bait—captures stop your momentum.
+**Trigger:** When this piece is **captured by a strictly higher rank**.
+**Effect (discrete):** **Also remove the captor.** No chain reactions. Does not trigger on equal/lower-rank captures, non-capture removals, or **Indomitable**. See **Sadist Streak** for delayed variant.
+**How it plays:** Trade up on contact.
 
 ---
 
 # Temporal abilities
 
-(Defined & registered: Do-Over, Resurrection, Temporal Lock, Schrodinger’s Laugh.     )
+(Registered: **Do-Over, Resurrection, Temporal Lock, Schrodinger’s Laugh**.)
 
 ### Do-Over
 
-**Trigger:** When this piece **would be captured** (primary, DK, QK, or echo).
-**Effect (discrete):** **Interrupt** the stack and **rewind** the game by **2 plies** (your last move + opponent’s last move). If stacked multiple times on the same piece, add **+1 ply per extra copy**, max 4 plies. **Consumes one charge** on trigger.
-**How it plays:** Cancels the whole DK/QK/chain if it fires; board snaps back.
+**Trigger:** When this piece **would be captured** (by primary, DK, QK, or delayed PM).
+**Effect (discrete):** **Interrupt** and **rewind 2 plies** (your last + opponent’s last). One use per piece. See **Flood Wake** and **Blinding** for modifiers.
+**How it plays:** Cancels the whole stack if it fires; board snaps back.
 
-### Resurrection 
+### Resurrection
 
 **Trigger:** Immediately **after you capture**.
-**Effect (discrete):** For your **very next segment only**, you also have **vertical 1-square capture** (up/down). Then it expires.
-**How it plays:** Convert the capture into a brief “pursuit” line.
+**Effect (discrete):** If you have missing pieces, **return one** of **rank ≤ the victim’s rank** to **any empty square in your back two ranks**. One resurrection per triggering capture.
+**How it plays:** Convert kills into material recovery behind your lines.
 
-### Temporal Lock 
+### Temporal Lock
 
-**Effect (discrete):** Apply **Slow 1** to the **next opponent piece that moves**: that piece **starts its turn with −1 step** (after their own buffs). Fire affinity increases Slow to **2**.
-**How it plays:** Your turn ends, their first mover is throttled.
+**Effect (discrete):** Target **enemy piece** cannot **move or capture** for **2 of its own turns**. It still blocks lines and may be captured.
+**How it plays:** Freeze a threat; pin lanes without removing.
 
-### Schrodinger’s Laugh 
+### Schrodinger’s Laugh
 
-**Effect:** **+2 steps**, and **+1 extra** if the piece also has **Side Step**.
-**How it plays:** Big AP burst; Side Step owners get one more segment.
+**Effect:** Create a **second copy** of the piece on an **adjacent empty** square. Both occupy the board. **Any capture on either removes both.** Both may move; **only one capture per turn** between them.
+**How it plays:** Two-place presence and fork pressure at high risk.
 
 ---
 
 ## Stacking & conflicts (concise)
 
-* **Steps:** Sum all step grants, then subtract any ability-specific penalties; clamp only by game balance if you already do (e.g., max +4).
-* **Multi-capture:** Only **Chain Kill** enables true path-based multi-captures. **Double/Quantum Kill** are **ability removals** that occur on top.
-* **Phasing priority:** **Bastion** and **Indomitable** **turn off** phasing on themselves; Gale Lift/Block Piece can’t override that.  
-* **Indomitable immunity:** DK/QK (and echoes) **cannot** remove it. 
-* **Do-Over timing:** If any removed unit has Do-Over, it **fires immediately** and **aborts** the remaining DK/QK/Chain effects for that capture sequence.
+1. **Order base:** Primary capture → DK → QK → PM → End-of-move (QS, Side Step) → Turn end.
+2. **Light Speed:** Element effects (e.g., **Blaze Rush**, **Flood Wake**, **Raijin**) resolve **before** non-element abilities.
+3. **Interrupts:** **Do-Over** interrupts and rewinds before any remaining effects; **Flood Wake** persists your side’s kills; **Blinding** grants you the post-rewind turn.
+4. **Immunities:** **Indomitable** stops ability-based removals. **Raijin** lets **QK ignore Indomitable**. **Stalwart/Belligerent** stop captures by rank; with **Anarchist Streak**, rank checks are ignored for both sides’ abilities.
+5. **Facing vs Phasing:** **Bastion** suppresses **Gale Lift** phasing on that move. **Stalwart/Belligerent/Indomitable** cannot be phased through.
+6. **Knockback:** Triggers only when a capture is **blocked** by Bastion/Stalwart/Belligerent. Destination squares must be empty; choose a random outward direction; if all blocked, no move. **Air** attackers ignore knockback.
+7. **Tailwind synergy:** Grants **CK↔QS** both if either present; extra steps apply after your base move pathing.
+8. **Overload scope:** With **Overload**, ability assignment is **per-piece**; without it, assignment is **army-wide**.
+9. **Sadist Streak:** Converts **PM** into a delayed mark; if the marked unit dies or is removed before the timer, the mark fizzles.
+10. **Scorch walls:** Scorch does not stop **equal/higher rank** or **Water**. A scorched square still blocks **phasing endpoints**.
+11. **Radiant Vision vs Mist:** Radiant Vision negates Mist’s concealment for the Light player only; it does not stop enemy QS.
+12. **Sturdy:** Consumed on first would-be capture only if the unit lacks Stalwart/Belligerent/Indomitable.
 
 ## Capture resolution order (deterministic)
 
-1. Primary capture happens.
-2. **Interrupt:** if the primary victim has **Do-Over**, rewind; stop.
-3. **Double Kill** (adjacent lower-rank to the victim square). Interrupt check (Do-Over?).
-4. **Quantum Kill** (remote ≤ rank of primary). Interrupt check.
-5. **Quantum echo** (adjacent to remote, lower rank). Interrupt check.
-6. If movement isn’t ended (no **Poisonous Meat/Overload/Bastion** effect and steps/Chain remain), continue your chain.
+1. **Declare move/capture** (CK chain chosen now if applicable).
+2. **Element pre-checks** if **Light Speed** (Raijin, Blaze Rush eligibility, Flood Wake flags).
+3. **Primary capture** resolves.
+4. **Poisonous Meat check** (immediate PM) or **mark** if **Sadist Streak** applies.
+5. **Double Kill (DK)** resolves if eligible; **Blaze Rush** may grant **an extra DK** now.
+6. **Quantum Kill (QK)** resolves if eligible; apply **Raijin** (ignore Indomitable) and **Blaze Rush** (extra QK or both vs Earth).
+7. **Resurrection** triggers for the mover, then **Temporal Lock** if used this turn.
+8. **Delayed effects queue update** (Sadist marks tick).
+9. **Do-Over window** for any captured piece with Do-Over. If fired: apply **Flood Wake**, then **Blinding** gives the rewinding side the next move; re-start from step 1 of the new state.
+10. **End-of-move mobility**: **Quantum Step**, **Side Step**; then **Gale/Bastion** interactions finalize.
+11. **Turn ends**; decrement **Scorch** timers; tick **Temporal Lock** and **Sadist** marks.
 
 ---
 
 ### Piece-type notes (so this stays “chess”)
 
-* **Sliders (Q/R/B):** Direction changes **spend 1 step** each.
-* **Knight:** Each jump is one segment; extra jumps need steps.
-* **King:** Still 1 square per segment; cannot path through check.
-* **Pawn:** Backward movement only if you have **Umbral Step** or **Belligerent**. **Scatter Shot** lets a Pawn capture horizontally by 1 when adjacent. **Resurrection** gives a 1-square vertical capture for the **next segment only**.
+* **Sliders (Q/R/B):** Must have clear lines to **land** captures even when phasing; **Radiant Vision** only aids **threat evaluation**, not landing through blockers.
+* **Knight:** Ignores screens as normal; CK uses the Knight’s **L** from the virtual origin.
+* **King:** Still 1 square per segment; cannot move into, through, or remain in check; cannot be removed by DK/QK.
+* **Pawn:** **Scatter Shot** allows **horizontal capture by 1** when adjacent.
 
-That’s everything—names from your codebase and **fully discrete mechanics** you can implement today without any fractional “range scaling.” If you want, I can push a `rules.go` patch that wires these as explicit predicates (e.g., `CanQKRemove`, `ApplyDirectionalShield`, `SpendStep`) and updates your capture resolver to fire **DK → QK → echo → interrupts** in that order.
+That’s everything—discrete, deterministic, and wired for an engine: predicates like `CanDK`, `CanQK`, `ApplyScorch`, `ApplyKnockback`, `ResolveQS`, and a resolver implementing the order above.
