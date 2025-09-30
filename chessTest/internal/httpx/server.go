@@ -68,12 +68,15 @@ func (s *Server) routes() http.Handler {
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	// Build initial payload embedding current engine state and option lists.
+	s.engineMu.Lock()
+	state := s.engine.State()
+	s.engineMu.Unlock()
 	init := struct {
 		State     game.BoardState `json:"state"`
 		Abilities []string        `json:"abilities"`
 		Elements  []string        `json:"elements"`
 	}{
-		State:     s.engine.State(),
+		State:     state,
 		Abilities: s.abilities,
 		Elements:  s.elements,
 	}
