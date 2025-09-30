@@ -48,6 +48,7 @@
 
   let pendingMove = null;
   let pendingBlockDir = "";
+  const configReady = { white: false, black: false };
 
   // ===== Tiny SFX =====
   const sounds = {
@@ -416,6 +417,8 @@
     resetBtn.classList.add("loading");
     try {
       const result = await fetchJSON("/api/reset", {});
+      configReady.white = false;
+      configReady.black = false;
       updateState(result);
       selectedSquare = null;
       possibleMoves = [];
@@ -465,6 +468,7 @@
           abilities: [ability],
           element
         });
+        configReady[color] = true;
         updateState(result);
         // Announce
         announce(`${capitalize(color)} chose ${ability} • ${element}`);
@@ -492,6 +496,15 @@
     const st = res && (res.state || res) || {};
     state = Object.assign({}, state || defaultState, st);
     state.locked = !!state.locked;
+    const abilitiesByColor = state.abilities || {};
+    const whiteList = abilitiesByColor.white;
+    const blackList = abilitiesByColor.black;
+    if (!Array.isArray(whiteList) || whiteList.length === 0) {
+      configReady.white = false;
+    }
+    if (!Array.isArray(blackList) || blackList.length === 0) {
+      configReady.black = false;
+    }
     renderBoard();
     updateConfigUI();
     updateMoveUI();
@@ -523,15 +536,23 @@
     const abilityMap = state.abilities || {};
     const configMap = state.config || {};
 
-    const isReady = (team) => {
-      const abilityList = abilityMap[team];
-      if (Array.isArray(abilityList) && abilityList.length > 0) return true;
-
-      const cfg = configMap[team];
-      if (!cfg) return false;
+    const hasConfigEntries = (cfg) => {
+      if (!cfg || typeof cfg !== "object") return false;
       if (Array.isArray(cfg)) return cfg.length > 0;
       if (Array.isArray(cfg.abilities)) return cfg.abilities.length > 0;
-      return false;
+      return Object.keys(cfg).length > 0;
+    };
+
+    const isReady = (team) => {
+      const abilityList = abilityMap[team];
+      const cfg = configMap[team];
+      if (hasConfigEntries(cfg)) {
+        return true;
+      }
+      if (!Array.isArray(abilityList) || abilityList.length === 0) {
+        return false;
+      }
+      return !!configReady[team];
     };
 
     const whiteReady = isReady("white");
