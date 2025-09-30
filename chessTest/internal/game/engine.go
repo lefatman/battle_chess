@@ -411,14 +411,14 @@ func (e *Engine) resolvePromotion(pc *Piece) {
 	}
 	if (pc.Color == White && pc.Square.Rank() == 7) || (pc.Color == Black && pc.Square.Rank() == 0) {
 		e.board.pieces[pc.Color][Pawn] = e.board.pieces[pc.Color][Pawn].Remove(pc.Square)
-		promoteTo := e.selectPromotionPiece(pc.Color)
+		promoteTo := e.selectPromotionPiece()
 		pc.Type = promoteTo
 		e.board.pieces[pc.Color][promoteTo] = e.board.pieces[pc.Color][promoteTo].Add(pc.Square)
 		appendAbilityNote(&e.board.lastNote, fmt.Sprintf("Pawn promoted to %s", promoteTo.String()))
 	}
 }
 
-func (e *Engine) selectPromotionPiece(color Color) PieceType {
+func (e *Engine) selectPromotionPiece() PieceType {
 	choices := e.board.PromotionChoices
 	if choices == PromotionNone {
 		choices = PromotionAll
