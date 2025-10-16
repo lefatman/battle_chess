@@ -348,32 +348,38 @@
     return isWhiteTurn === isWhite;
   }
 
-  moveForm.addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    if (isAnimating) return;
+  if (!moveForm) {
+    console.error("BattleChess: #moveForm element not found; skipping move UI setup.");
+  } else {
+    moveForm.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      if (isAnimating) return;
 
-    moveError.textContent = "";
-    moveError.className = "";
+      moveError.textContent = "";
+      moveError.className = "";
 
-    const from = (ev.target.from.value || "").trim().toLowerCase();
-    const to = (ev.target.to.value || "").trim().toLowerCase();
-    const fromSq = algToSq(from);
-    const toSq = algToSq(to);
-    const movingPiece = state.pieces.find(p => p.square === fromSq);
-    if (movingPiece && needsBlockPathDirection(movingPiece) && toSq >= 0) {
-      prepareBlockDirSelection(movingPiece, fromSq, toSq);
-      return;
-    }
+      const from = (ev.target.from.value || "").trim().toLowerCase();
+      const to = (ev.target.to.value || "").trim().toLowerCase();
+      const fromSq = algToSq(from);
+      const toSq = algToSq(to);
+      const movingPiece = state.pieces.find(p => p.square === fromSq);
+      if (movingPiece && needsBlockPathDirection(movingPiece) && toSq >= 0) {
+        prepareBlockDirSelection(movingPiece, fromSq, toSq);
+        return;
+      }
 
-    await submitMove(from, to, "");
-  });
+      await submitMove(from, to, "");
+    });
+  }
 
   async function submitMove(from, to, dir) {
     clearBlockDirOverlay();
     pendingMove = null;
     pendingBlockDir = "";
     isAnimating = true;
-    moveForm.classList.add("loading");
+    if (moveForm) {
+      moveForm.classList.add("loading");
+    }
     try {
       const payloadDir = typeof dir === "string" ? dir.toUpperCase() : String(dir || "");
       const result = await fetchJSON("/api/move", { from, to, dir: payloadDir });
@@ -394,7 +400,9 @@
       // Clear selection if success
       selectedSquare = null;
       possibleMoves = [];
-      moveForm.reset();
+      if (moveForm) {
+        moveForm.reset();
+      }
       // Move list
       addMoveToList(from, to, result);
     } catch (err) {
@@ -402,7 +410,9 @@
       sounds.error();
     } finally {
       isAnimating = false;
-      moveForm.classList.remove("loading");
+      if (moveForm) {
+        moveForm.classList.remove("loading");
+      }
       renderBoard();
     }
   }
@@ -530,9 +540,14 @@
   }
 
   function updateMoveUI() {
+    if (!moveForm) return;
     const fromInput = document.getElementById("fromInput");
     const toInput = document.getElementById("toInput");
     const submitBtn = moveForm.querySelector('button[type="submit"]');
+    if (!fromInput || !toInput || !submitBtn) {
+      console.error("BattleChess: move form inputs missing; skipping move UI update.");
+      return;
+    }
     const abilityMap = state.abilities || {};
     const configMap = state.config || {};
 
